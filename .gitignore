@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+
+# data, checkpoints, logs
+data/
+cache/
+outputs/
+checkpoints/
+wandb/
+*.wav
+*.flac
+*.safetensors

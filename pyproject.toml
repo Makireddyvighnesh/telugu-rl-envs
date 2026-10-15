@@ -1,0 +1,24 @@
+[project]
+name = "telugu-rl-envs"
+version = "0.1.0"
+description = "OpenEnv-compatible RL environments for Telugu OCR and ASR"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core",
+    "datasets",
+    "pillow",
+    "jiwer",
+]
+
+[project.optional-dependencies]
+asr = ["soundfile", "librosa"]
+train = ["trl", "peft", "transformers", "accelerate"]
+dev = ["pytest", "ruff"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["telugu_envs*"]
