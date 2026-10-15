@@ -8,7 +8,8 @@ dependencies = [
     "openenv-core",
     "datasets",
     "pillow",
-    "jiwer",
+    "numpy",
+    "rapidfuzz",
 ]
 
 [project.optional-dependencies]
