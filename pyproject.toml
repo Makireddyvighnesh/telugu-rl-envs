@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 asr = ["soundfile", "librosa"]
-train = ["trl", "peft", "transformers", "accelerate"]
+train = ["trl>=1.16", "peft>=0.17", "transformers>=5.2", "accelerate"]
 dev = ["pytest", "ruff"]
 
 [build-system]

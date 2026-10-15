@@ -43,8 +43,13 @@ def worker(rank: int, args, shard: list[dict], k: int, temperature: float, queue
     tok = AutoTokenizer.from_pretrained(args.model)
     tok.padding_side = "left"
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=torch.float16 if device == "cuda" else torch.float32  # T4 has no bf16
-    ).to(device).eval()
+        args.model, dtype=torch.float16 if device == "cuda" else torch.float32  # T4 has no bf16
+    )
+    if args.adapter:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, args.adapter).merge_and_unload()
+    model = model.to(device).eval()
 
     outputs = []
     for i in range(0, len(shard), args.batch_size):
@@ -130,6 +135,7 @@ def summarize_sampling(results):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    ap.add_argument("--adapter", default=None, help="LoRA adapter dir (e.g. a GRPO output's final/)")
     ap.add_argument("--source", default="aksharantar")
     ap.add_argument("--split", default="test")
     ap.add_argument("--limit", type=int, default=None, help="cap on greedy-eval samples")
@@ -160,7 +166,7 @@ def main():
     ]
     print(f"{len(items)} samples from {args.source}/{args.split}; model={args.model}; replicas={args.replicas}", flush=True)
 
-    report = {"model": args.model, "source": args.source, "split": args.split, "replicas": args.replicas}
+    report = {"model": args.model, "adapter": args.adapter, "source": args.source, "split": args.split, "replicas": args.replicas}
     t = time.time()
     greedy = score(run_parallel(args, items, k=1, temperature=0.0))
     report["greedy"] = summarize_greedy(greedy)
