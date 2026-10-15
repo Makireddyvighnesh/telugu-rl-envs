@@ -16,3 +16,4 @@ wandb/
 *.wav
 *.flac
 *.safetensors
+*.bundle
