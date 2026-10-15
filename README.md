@@ -14,7 +14,7 @@ Text is normalized before scoring (Unicode NFC, punctuation, numerals).
 | `nayana_regions` | OCR | train | `Cognitive-Lab/NayanaOCR_Corpus_2025` [te], 45.7k synthetic pages (~40 GB) | single layout-region crop; GT = rendered text |
 | `nayana_natural` | OCR | eval | `Cognitive-Lab/NayanaOCRBench_Natural` [te], 461 real human-verified pages | text-block crop |
 | `sarvam` | OCR | held-out test | `sarvamai/indic-ocr-bench`, 300 Telugu blocks | block crop |
-| `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] parquet | utterance (≤30 s) |
+| `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] parquet | utterance (≤30 s); ~10% of refs keep English terms in Latin script (`exclude_latin=True` drops them) |
 
 Nayana pages are 3300×2550 and carry per-region bboxes, so the OCR env serves
 region crops rather than whole pages: smaller images, exact references, and a
@@ -71,7 +71,7 @@ tests/
 - [x] Text normalization + CER/WER reward
 - [x] OCR environment
 - [x] ASR environment
-- [ ] Validate streaming against real data (blocked: HF CDN not reachable from the dev container)
+- [x] Validate streaming against real data (`RUN_HF_TESTS=1 pytest tests/test_integration_hf.py`; end-to-end: `scripts/smoke_test_server.py`)
 - [ ] Baseline evaluation script
 - [ ] GRPO training (TRL + LoRA)
 - [ ] Results: before/after curves

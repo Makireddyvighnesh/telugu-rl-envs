@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import random
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Iterator
 
@@ -25,6 +26,9 @@ import numpy as np
 from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None  # Nayana pages are 3300x2550; Natural scans can be larger.
+
+_TELUGU_RE = re.compile(r"[\u0C00-\u0C7F]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
 
 
 @dataclass
@@ -82,6 +86,7 @@ def nayana_regions(
     pad: int = 16,
     max_side: int = 1536,
     layouts: Iterable[str] = TEXT_LAYOUTS,
+    require_telugu: bool = True,
     buffer: int = 64,
 ) -> SampleSource:
     """Single-region crops from Nayana's synthetic Telugu page renders."""
@@ -91,6 +96,7 @@ def nayana_regions(
         rng = random.Random(seed)
         for row in _stream("Cognitive-Lab/NayanaOCR_Corpus_2025", "train", seed, buffer, data_dir="te"):
             page = None
+            seen: set[str] = set()  # some pages carry duplicate region annotations
             regions = list(row["regions.json"] or [])
             if seed is not None:
                 rng.shuffle(regions)
@@ -99,6 +105,11 @@ def nayana_regions(
                 b = reg["bbox"]
                 if reg.get("layout_type") not in layouts or not (min_chars <= len(text) <= max_chars):
                     continue
+                if require_telugu and not _TELUGU_RE.search(text):
+                    continue
+                if text in seen:
+                    continue
+                seen.add(text)
                 if b["ymax"] - b["ymin"] < min_height or b["xmax"] - b["xmin"] < min_height:
                     continue
                 page = page or _to_pil(row["jpg"])
@@ -118,6 +129,7 @@ def nayana_natural(
     pad: int = 8,
     max_side: int = 1536,
     layouts: Iterable[str] = ("text", "title", "text_block", "paragraph", "list", "caption", "header", "footer"),
+    require_telugu: bool = True,
     buffer: int = 16,
 ) -> SampleSource:
     """Text-block crops from human-verified real Telugu documents (eval set)."""
@@ -129,6 +141,8 @@ def nayana_natural(
             for i, blk in enumerate(row["layout_content_norm1000"] or []):
                 text = (blk.get("content") or "").strip()
                 if (blk.get("type") or "").lower() not in layouts or not (min_chars <= len(text) <= max_chars):
+                    continue
+                if require_telugu and not _TELUGU_RE.search(text):
                     continue
                 page = page or _to_pil(row["image"])
                 W, H = page.size
@@ -144,17 +158,24 @@ def nayana_natural(
     return source
 
 
-def sarvam(split: str = "test", buffer: int = 64) -> SampleSource:
-    """Telugu blocks of the Sarvam Indic OCR Bench (held-out test set)."""
+def sarvam(split: str = "test", max_side: int | None = None, buffer: int = 64) -> SampleSource:
+    """Telugu blocks of the Sarvam Indic OCR Bench (held-out test set).
+
+    Images are kept at native resolution (up to ~2000 px wide) to match the
+    benchmark; pass ``max_side`` to downscale for models with small image budgets.
+    """
 
     def source(seed: int | None) -> Iterator[Sample]:
         for row in _stream("sarvamai/indic-ocr-bench", split, seed, buffer):
             if row["language"] != "Telugu":
                 continue
+            image = _to_pil(row["image"]).convert("RGB")
+            if max_side and max(image.size) > max_side:
+                image.thumbnail((max_side, max_side), Image.LANCZOS)
             yield Sample(
                 id=f"sarvam/{row['image_name']}",
                 reference=row["gt"],
-                image=_to_pil(row["image"]).convert("RGB"),
+                image=image,
                 meta={"source": "sarvam"},
             )
 
@@ -166,8 +187,25 @@ def sarvam(split: str = "test", buffer: int = 64) -> SampleSource:
 # ---------------------------------------------------------------------------
 
 
-def fleurs(split: str = "train", max_seconds: float = 30.0, buffer: int = 64) -> SampleSource:
-    """FLEURS Telugu (te_in). Reference is the normalized ``transcription``."""
+def _decode_audio(data: bytes, target_sr: int) -> tuple[np.ndarray, int]:
+    import soundfile as sf
+
+    arr, sr = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
+    arr = arr.mean(axis=1)
+    if sr != target_sr:
+        import librosa
+
+        arr, sr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr), target_sr
+    return arr, sr
+
+
+def fleurs(split: str = "train", max_seconds: float = 30.0, exclude_latin: bool = False, buffer: int = 64) -> SampleSource:
+    """FLEURS Telugu (te_in). Reference is the normalized ``transcription``.
+
+    ~10% of references keep English names/terms in Latin script ("qvc",
+    "siminoff"); a model that transliterates them into Telugu is penalized.
+    ``exclude_latin=True`` drops those utterances.
+    """
 
     def source(seed: int | None) -> Iterator[Sample]:
         from datasets import Audio
@@ -179,17 +217,18 @@ def fleurs(split: str = "train", max_seconds: float = 30.0, buffer: int = 64) ->
             seed,
             buffer,
             data_files={split: f"hf://datasets/google/fleurs/parquet-data/te_in/{split}-*.parquet"},
-        ).cast_column("audio", Audio(sampling_rate=16000))
+        ).cast_column("audio", Audio(decode=False))  # decode with soundfile; avoids a torchcodec dependency
         for row in ds:
-            audio = row["audio"]
-            arr = np.asarray(audio["array"], dtype=np.float32)
-            if len(arr) / audio["sampling_rate"] > max_seconds:
+            if exclude_latin and _LATIN_RE.search(row["transcription"]):
+                continue
+            arr, sr = _decode_audio(row["audio"]["bytes"], target_sr=16000)
+            if len(arr) / sr > max_seconds:
                 continue
             yield Sample(
-                id=f"fleurs/{split}/{row['id']}/{row['path']}",
+                id=f"fleurs/{split}/{row['id']}/{row['path'].rsplit('/', 1)[-1]}",
                 reference=row["transcription"],
                 audio=arr,
-                sampling_rate=audio["sampling_rate"],
+                sampling_rate=sr,
                 meta={"source": "fleurs", "raw_transcription": row["raw_transcription"], "gender": row["gender"]},
             )
 

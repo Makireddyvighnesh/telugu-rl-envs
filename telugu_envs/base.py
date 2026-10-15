@@ -40,6 +40,10 @@ class TranscriptionObservation(Observation):
     reference: Optional[str] = Field(default=None)
     cer: Optional[float] = Field(default=None)
     wer: Optional[float] = Field(default=None)
+    # OpenEnv's serializer drops Observation.metadata, so diagnostics get real fields.
+    flags: list[str] = Field(default_factory=list, description="e.g. empty, tail_loop, length_explosion")
+    cleaned_prediction: Optional[str] = Field(default=None, description="Transcription after wrapper stripping")
+    source: Optional[str] = Field(default=None)
     error: Optional[str] = Field(default=None)
 
 
@@ -154,7 +158,10 @@ class TranscriptionEnvironment(Environment):
             reference=self._sample.reference,
             cer=result.cer,
             wer=result.wer,
-            metadata={"flags": result.flags, "cleaned_prediction": result.prediction, **self._sample.meta},
+            flags=result.flags,
+            cleaned_prediction=result.prediction,
+            source=self._sample.meta.get("source"),
+            metadata=dict(self._sample.meta),
         )
 
     @property
