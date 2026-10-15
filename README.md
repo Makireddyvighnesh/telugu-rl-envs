@@ -14,6 +14,9 @@ Text is normalized before scoring (Unicode NFC, punctuation, numerals).
 | `nayana_regions` | OCR | train | `Cognitive-Lab/NayanaOCR_Corpus_2025` [te], 45.7k synthetic pages (~40 GB) | single layout-region crop; GT = rendered text |
 | `nayana_natural` | OCR | eval | `Cognitive-Lab/NayanaOCRBench_Natural` [te], 461 real human-verified pages | text-block crop |
 | `sarvam` | OCR | held-out test | `sarvamai/indic-ocr-bench`, 300 Telugu blocks | block crop |
+| `aksharantar` | Transliteration | train / valid / test | `ai4bharat/Aksharantar` `tel.zip` (word pairs; `words_per_task=(lo,hi)` makes phrases) | romanized → Telugu script |
+| `samanantar` | Translation | train | `ai4bharat/samanantar` [te], streamed (CC BY-NC; web-mined, noisy references) | en ↔ te sentence |
+| `flores` | Translation | eval (dev / devtest) | `openlanguagedata/flores_plus` (gated: accept terms) | en ↔ te sentence |
 | `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] parquet | utterance (≤30 s); ~10% of refs keep English terms in Latin script (`exclude_latin=True` drops them) |
 
 Nayana pages are 3300×2550 and carry per-region bboxes, so the OCR env serves
@@ -29,6 +32,9 @@ quote/dash folding, danda/pipe, ZWJ/ZWNJ, HTML/bullets) plus Telugu-digit
 folding; ASR mode also drops punctuation. Model wrappers (`<think>…</think>`,
 code fences) are stripped. Empty or degenerate outputs (tail loops, length
 explosion) get 0 so GRPO can't farm partial credit by repeating.
+
+Text tasks (`telugu_envs.text_env.TeluguTextEnvironment`) reward transliteration with
+`0.8 × (1 − CER) + 0.2 × exact match` and translation with chrF++.
 
 ## Usage
 
@@ -72,6 +78,8 @@ tests/
 - [x] OCR environment
 - [x] ASR environment
 - [x] Validate streaming against real data (`RUN_HF_TESTS=1 pytest tests/test_integration_hf.py`; end-to-end: `scripts/smoke_test_server.py`)
+- [x] Text environment: transliteration + translation
+- [ ] Validate Aksharantar / FLORES on real data (needs `cas-server.xethub.hf.co` allowed; FLORES terms accepted)
 - [ ] Baseline evaluation script
 - [ ] GRPO training (TRL + LoRA)
 - [ ] Results: before/after curves

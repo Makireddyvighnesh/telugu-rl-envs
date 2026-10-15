@@ -2,6 +2,7 @@
 
     TELUGU_SOURCE=nayana_regions uvicorn telugu_envs.server:ocr_app --port 8000
     TELUGU_SOURCE=fleurs TELUGU_SPLIT=train uvicorn telugu_envs.server:asr_app --port 8001
+    TELUGU_SOURCE=aksharantar uvicorn telugu_envs.server:text_app --port 8002
 
 Env vars:
     TELUGU_SOURCE   one of telugu_envs.data.SOURCES (default: nayana_regions / fleurs)
@@ -20,6 +21,7 @@ from telugu_envs.asr.environment import TeluguASREnvironment
 from telugu_envs.base import SharedSampler, TranscriptionAction, TranscriptionObservation
 from telugu_envs.data import SOURCES
 from telugu_envs.ocr.environment import TeluguOCREnvironment
+from telugu_envs.text_env import TeluguTextEnvironment, TextAction, TextObservation
 
 
 @lru_cache(maxsize=None)
@@ -37,6 +39,10 @@ def make_asr_env() -> TeluguASREnvironment:
     return TeluguASREnvironment(_sampler("fleurs"))
 
 
+def make_text_env() -> TeluguTextEnvironment:
+    return TeluguTextEnvironment(_sampler("aksharantar"))
+
+
 _MAX_ENVS = int(os.environ.get("TELUGU_MAX_ENVS", "64"))
 
 
@@ -46,4 +52,6 @@ def __getattr__(name: str):
         return create_app(make_ocr_env, TranscriptionAction, TranscriptionObservation, env_name="telugu_ocr", max_concurrent_envs=_MAX_ENVS)
     if name == "asr_app":
         return create_app(make_asr_env, TranscriptionAction, TranscriptionObservation, env_name="telugu_asr", max_concurrent_envs=_MAX_ENVS)
+    if name == "text_app":
+        return create_app(make_text_env, TextAction, TextObservation, env_name="telugu_text", max_concurrent_envs=_MAX_ENVS)
     raise AttributeError(name)

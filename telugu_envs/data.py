@@ -35,6 +35,7 @@ _LATIN_RE = re.compile(r"[A-Za-z]")
 class Sample:
     id: str
     reference: str
+    text: str | None = None  # source text for text-to-text tasks
     image: Image.Image | None = None
     audio: np.ndarray | None = None
     sampling_rate: int | None = None
@@ -236,6 +237,112 @@ def fleurs(split: str = "train", max_seconds: float = 30.0, exclude_latin: bool 
 
 
 # ---------------------------------------------------------------------------
+# Text-to-text sources (transliteration, translation)
+# ---------------------------------------------------------------------------
+
+
+def _jsonl_from_zip(path: str, member_suffix: str) -> list[dict]:
+    import json
+    import zipfile
+
+    with zipfile.ZipFile(path) as z:
+        names = [n for n in z.namelist() if n.endswith(member_suffix)]
+        if len(names) != 1:
+            raise ValueError(f"expected one *{member_suffix} in {path}, found {names}")
+        with z.open(names[0]) as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+
+def aksharantar(split: str = "train", words_per_task: int | tuple[int, int] = 1) -> SampleSource:
+    """AI4Bharat Aksharantar Telugu: romanized word -> Telugu-script word.
+
+    The corpus is word-level. ``words_per_task=(lo, hi)`` concatenates a random
+    number of words into one phrase-level task, a simple difficulty knob.
+    Split names in the archive: train / valid / test. ~72 MB, downloaded once
+    and cached by huggingface_hub.
+    """
+    file_split = {"validation": "valid"}.get(split, split)
+
+    def source(seed: int | None) -> Iterator[Sample]:
+        from huggingface_hub import hf_hub_download
+
+        path = hf_hub_download("ai4bharat/Aksharantar", "tel.zip", repo_type="dataset")
+        rows = _jsonl_from_zip(path, f"_{file_split}.json")
+        rows = [r for r in rows if r.get("english word") and r.get("native word")]
+        rng = random.Random(seed)
+        order = list(range(len(rows)))
+        if seed is not None:
+            rng.shuffle(order)
+        lo, hi = (words_per_task, words_per_task) if isinstance(words_per_task, int) else words_per_task
+        i = 0
+        while i < len(order):
+            k = rng.randint(lo, hi)
+            idx = order[i : i + k]
+            i += k
+            group = [rows[j] for j in idx]
+            yield Sample(
+                id="aksharantar/" + "+".join(str(rows[j].get("unique_identifier", j)) for j in idx),
+                text=" ".join(r["english word"] for r in group),
+                reference=" ".join(r["native word"] for r in group),
+                meta={"source": "aksharantar", "task": "transliteration", "words": len(group)},
+            )
+
+    return source
+
+
+def flores(split: str = "dev", direction: str = "eng-tel") -> SampleSource:
+    """FLORES+ sentence pairs (gated: accept the terms on the dataset page first).
+
+    ``split`` is ``dev`` (997) or ``devtest`` (1012); evaluation only.
+    """
+    src_lang, tgt_lang = {"eng-tel": ("eng_Latn", "tel_Telu"), "tel-eng": ("tel_Telu", "eng_Latn")}[direction]
+
+    def source(seed: int | None) -> Iterator[Sample]:
+        import json
+
+        from huggingface_hub import hf_hub_download
+
+        def load(lang):
+            p = hf_hub_download("openlanguagedata/flores_plus", f"{split}/{lang}.jsonl", repo_type="dataset")
+            with open(p, encoding="utf-8") as f:
+                return {r["id"]: r["text"] for r in map(json.loads, f)}
+
+        src, tgt = load(src_lang), load(tgt_lang)
+        ids = sorted(src.keys() & tgt.keys())
+        if seed is not None:
+            random.Random(seed).shuffle(ids)
+        for i in ids:
+            yield Sample(
+                id=f"flores/{split}/{direction}/{i}",
+                text=src[i],
+                reference=tgt[i],
+                meta={"source": "flores", "task": "translation", "direction": direction},
+            )
+
+    return source
+
+
+def samanantar(direction: str = "eng-tel", max_chars: int = 400, buffer: int = 1024) -> SampleSource:
+    """AI4Bharat Samanantar en-te parallel corpus (CC BY-NC 4.0), streamed; for training."""
+
+    def source(seed: int | None) -> Iterator[Sample]:
+        ds = _stream("ai4bharat/samanantar", "train", seed, buffer, data_dir="te")
+        for n, row in enumerate(ds):
+            en, te = (row.get("src") or "").strip(), (row.get("tgt") or "").strip()
+            if not en or not te or len(en) > max_chars or len(te) > max_chars:
+                continue
+            text, ref = (en, te) if direction == "eng-tel" else (te, en)
+            yield Sample(
+                id=f"samanantar/{direction}/{row.get('idx', n)}",
+                text=text,
+                reference=ref,
+                meta={"source": "samanantar", "task": "translation", "direction": direction},
+            )
+
+    return source
+
+
+# ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
 
@@ -257,4 +364,7 @@ SOURCES: dict[str, Callable[..., SampleSource]] = {
     "nayana_natural": nayana_natural,
     "sarvam": sarvam,
     "fleurs": fleurs,
+    "aksharantar": aksharantar,
+    "flores": flores,
+    "samanantar": samanantar,
 }
