@@ -253,13 +253,27 @@ def _jsonl_from_zip(path: str, member_suffix: str) -> list[dict]:
             return [json.loads(line) for line in f if line.strip()]
 
 
-def aksharantar(split: str = "train", words_per_task: int | tuple[int, int] = 1) -> SampleSource:
+AKSHARANTAR_HUMAN_SOURCES = ("Dakshina", "AK-Freq", "AK-NEI", "AK-NEF")
+
+
+def aksharantar(
+    split: str = "train",
+    words_per_task: int | tuple[int, int] = 1,
+    sources: tuple[str, ...] | None = AKSHARANTAR_HUMAN_SOURCES,
+) -> SampleSource:
     """AI4Bharat Aksharantar Telugu: romanized word -> Telugu-script word.
 
     The corpus is word-level. ``words_per_task=(lo, hi)`` concatenates a random
     number of words into one phrase-level task, a simple difficulty knob.
     Split names in the archive: train / valid / test. ~72 MB, downloaded once
     and cached by huggingface_hub.
+
+    ``sources`` filters on the per-row ``source`` field (None keeps everything).
+    Telugu train is 95% IndicCorp (web-mined, model-romanized, ~1 in 8 native
+    words misspelled in a 40-row audit); "Existing" had ~1 in 6 outright wrong
+    pairs. The default keeps human-romanized sources only: Dakshina in train
+    (~51k pairs, 0 errors in the audit), Dakshina + AK-* in valid/test, which
+    matches the human-typed test distribution.
     """
     file_split = {"validation": "valid"}.get(split, split)
 
@@ -269,6 +283,8 @@ def aksharantar(split: str = "train", words_per_task: int | tuple[int, int] = 1)
         path = hf_hub_download("ai4bharat/Aksharantar", "tel.zip", repo_type="dataset")
         rows = _jsonl_from_zip(path, f"_{file_split}.json")
         rows = [r for r in rows if r.get("english word") and r.get("native word")]
+        if sources is not None:
+            rows = [r for r in rows if r.get("source") in sources]
         rng = random.Random(seed)
         order = list(range(len(rows)))
         if seed is not None:
@@ -284,7 +300,12 @@ def aksharantar(split: str = "train", words_per_task: int | tuple[int, int] = 1)
                 id="aksharantar/" + "+".join(str(rows[j].get("unique_identifier", j)) for j in idx),
                 text=" ".join(r["english word"] for r in group),
                 reference=" ".join(r["native word"] for r in group),
-                meta={"source": "aksharantar", "task": "transliteration", "words": len(group)},
+                meta={
+                    "source": "aksharantar",
+                    "task": "transliteration",
+                    "words": len(group),
+                    "origins": sorted({r.get("source") for r in group}),
+                },
             )
 
     return source

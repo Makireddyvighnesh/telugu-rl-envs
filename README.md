@@ -14,7 +14,7 @@ Text is normalized before scoring (Unicode NFC, punctuation, numerals).
 | `nayana_regions` | OCR | train | `Cognitive-Lab/NayanaOCR_Corpus_2025` [te], 45.7k synthetic pages (~40 GB) | single layout-region crop; GT = rendered text |
 | `nayana_natural` | OCR | eval | `Cognitive-Lab/NayanaOCRBench_Natural` [te], 461 real human-verified pages | text-block crop |
 | `sarvam` | OCR | held-out test | `sarvamai/indic-ocr-bench`, 300 Telugu blocks | block crop |
-| `aksharantar` | Transliteration | train / valid / test | `ai4bharat/Aksharantar` `tel.zip` (word pairs; `words_per_task=(lo,hi)` makes phrases) | romanized → Telugu script |
+| `aksharantar` | Transliteration | train / valid / test | `ai4bharat/Aksharantar` `tel.zip`, human-romanized sources only by default: 50.9k / 3.7k / 10.3k pairs (`sources=None` adds the 2.3M web-mined pairs; `words_per_task=(lo,hi)` joins random words into phrases) | romanized → Telugu script |
 | `samanantar` | Translation | train | `ai4bharat/samanantar` [te], streamed (CC BY-NC; web-mined, noisy references) | en ↔ te sentence |
 | `flores` | Translation | eval (dev / devtest) | `openlanguagedata/flores_plus` (gated: accept terms) | en ↔ te sentence |
 | `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] parquet | utterance (≤30 s); ~10% of refs keep English terms in Latin script (`exclude_latin=True` drops them) |
@@ -59,6 +59,11 @@ TELUGU_SOURCE=nayana_regions uvicorn telugu_envs.server:ocr_app --port 8000
 TELUGU_SOURCE=fleurs TELUGU_SPLIT=train uvicorn telugu_envs.server:asr_app --port 8001
 ```
 
+## Notes
+
+In sandboxed networks where Hugging Face's Xet storage (`cas-server.xethub.hf.co`)
+returns 401, set `HF_HUB_DISABLE_XET=1` to download through the regular CDN.
+
 ## Layout
 
 ```
@@ -79,7 +84,8 @@ tests/
 - [x] ASR environment
 - [x] Validate streaming against real data (`RUN_HF_TESTS=1 pytest tests/test_integration_hf.py`; end-to-end: `scripts/smoke_test_server.py`)
 - [x] Text environment: transliteration + translation
-- [ ] Validate Aksharantar / FLORES on real data (needs `cas-server.xethub.hf.co` allowed; FLORES terms accepted)
+- [x] Validate Aksharantar on real data, audit sources (see `aksharantar` docstring)
+- [ ] Validate FLORES (gated: accept terms)
 - [ ] Baseline evaluation script
 - [ ] GRPO training (TRL + LoRA)
 - [ ] Results: before/after curves
