@@ -67,12 +67,13 @@ Notebook settings: Accelerator **GPU T4 ×2**, Internet **on**, secret `HF_TOKEN
 !git clone https://<github-token>@github.com/Makireddyvighnesh/telugu-rl-envs
 %cd telugu-rl-envs
 !pip install -q -e ".[train]"
+!pip uninstall -y torchao   # Kaggle ships torchao 0.10; new peft refuses <0.16, and we don't use it
 
 # 1. timing check: 20 steps, then read the s/it from the progress bar
-!accelerate launch --multi_gpu --num_processes 2 scripts/train_grpo_text.py --max-steps 20 --eval-steps 10 --out outputs/grpo-timing
+!accelerate launch --multi_gpu --num_processes 2 --num_machines 1 --mixed_precision no --dynamo_backend no scripts/train_grpo_text.py --max-steps 20 --eval-steps 10 --out outputs/grpo-timing
 
 # 2. full run (default 300 steps × 16 words × 8 answers); add --resume to continue after a timeout
-!accelerate launch --multi_gpu --num_processes 2 scripts/train_grpo_text.py --out outputs/grpo-qwen15b
+!accelerate launch --multi_gpu --num_processes 2 --num_machines 1 --mixed_precision no --dynamo_backend no scripts/train_grpo_text.py --out outputs/grpo-qwen15b
 
 # 3. same test as the baseline, with the trained adapter
 !python scripts/eval_text.py --model Qwen/Qwen2.5-1.5B-Instruct --adapter outputs/grpo-qwen15b/final \
