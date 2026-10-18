@@ -90,6 +90,27 @@ Baselines to beat are in `results/baselines.md`.
 In sandboxed networks where Hugging Face's Xet storage (`cas-server.xethub.hf.co`)
 returns 401, set `HF_HUB_DISABLE_XET=1` to download through the regular CDN.
 
+## Transliteration environment (OpenEnv)
+
+[`transliteration/`](transliteration/) packages the transliteration task as a standalone
+OpenEnv environment in the FineEnvs layout: a server that holds the references and grades
+answers, a Gradio playground at `/web`, the OpenEnv task API, a typed client, and a TRL
+adapter that trains through it. See [its README](transliteration/README.md).
+
+```bash
+docker run -p 8000:8000 ghcr.io/makireddyvighnesh/telugu-transliteration-env:latest
+# or from source
+pip install -e "./transliteration[train]"
+python -m telugu_transliteration.data.prepare --output snapshot
+TRANSLIT_SNAPSHOT=snapshot python -m telugu_transliteration.server.app
+```
+
+A 1000-step GRPO run of Qwen2.5-1.5B-Instruct trained through the environment
+(`python -m telugu_transliteration.train_grpo --env-url ...`) took greedy test reward on the
+10,260 Aksharantar test words from 0.372 to 0.695 and exact match from 4.6% to 29.1%. The
+adapter, curves and logs are at
+[makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
+
 ## Layout
 
 ```
@@ -112,6 +133,8 @@ tests/
 - [x] Text environment: transliteration + translation
 - [x] Validate Aksharantar on real data, audit sources (see `aksharantar` docstring)
 - [ ] Validate FLORES (gated: accept terms)
-- [ ] Baseline evaluation script
-- [ ] GRPO training (TRL + LoRA)
-- [ ] Results: before/after curves
+- [x] Baseline evaluation script
+- [x] GRPO training (TRL + LoRA)
+- [x] Results: before/after curves
+- [x] Transliteration as a standalone OpenEnv environment; GRPO trained through it
+- [ ] OCR and ASR as standalone OpenEnv environments

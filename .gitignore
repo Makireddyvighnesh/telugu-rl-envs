@@ -17,3 +17,8 @@ wandb/
 *.flac
 *.safetensors
 *.bundle
+
+# transliteration env snapshot (built by data/prepare.py)
+snapshot/
+# transliteration/data/ is the env's data-loading code, not data
+!transliteration/data/

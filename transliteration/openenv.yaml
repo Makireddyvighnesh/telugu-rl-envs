@@ -1,0 +1,8 @@
+spec_version: 1
+name: telugu_transliteration
+type: space
+runtime: fastapi
+app: telugu_transliteration.server.app:create_server
+port: 8000
+description: Telugu transliteration (romanized to Telugu script) from the human-romanized Aksharantar sources, scored by character error rate with an exact-match bonus.
+version: "0.1.0"
