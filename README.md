@@ -1,140 +1,128 @@
 # telugu-rl-envs
 
-OpenEnv-compatible reinforcement-learning environments for Telugu:
+Reinforcement-learning environments for Telugu, built on [OpenEnv](https://github.com/meta-pytorch/OpenEnv).
+Each environment serves one task per episode: `reset()` returns the input, `step()` grades one
+answer against a reference the trainer never sees.
 
-- **OCR** — `reset()` returns a document/scene image plus an instruction; `step()` scores the model's transcription by character error rate (CER).
-- **ASR** — `reset()` returns an audio clip plus an instruction; `step()` scores the transcription by CER/WER.
+| Environment | Input → answer | Reward | Data |
+|---|---|---|---|
+| [**Transliteration**](transliteration/) (standalone OpenEnv server) | romanized word → Telugu script | `0.8 × (1 − CER) + 0.2 × exact` | Aksharantar, human-romanized sources |
+| OCR (`telugu_envs.ocr`) | image crop → text | `1 − CER` | Nayana corpus, Nayana Natural, Sarvam Indic OCR Bench |
+| ASR (`telugu_envs.asr`) | audio clip → text | `1 − CER` | FLEURS `te_in` |
+| Translation (`telugu_envs.text_env`) | English ↔ Telugu | chrF++ | Samanantar, FLORES+ |
 
-Text is normalized before scoring (Unicode NFC, punctuation, numerals).
+## Results
 
-## Data sources (streamed)
+Qwen2.5-1.5B-Instruct + LoRA, 1000 GRPO steps trained through the transliteration environment
+on Kaggle 2×T4. Greedy decoding on all 10,260 Aksharantar Telugu test words:
 
-| Source key | Task | Role | Dataset | Unit |
-|---|---|---|---|---|
-| `nayana_regions` | OCR | train | `Cognitive-Lab/NayanaOCR_Corpus_2025` [te], 45.7k synthetic pages (~40 GB) | single layout-region crop; GT = rendered text |
-| `nayana_natural` | OCR | eval | `Cognitive-Lab/NayanaOCRBench_Natural` [te], 461 real human-verified pages | text-block crop |
-| `sarvam` | OCR | held-out test | `sarvamai/indic-ocr-bench`, 300 Telugu blocks | block crop |
-| `aksharantar` | Transliteration | train / valid / test | `ai4bharat/Aksharantar` `tel.zip`, human-romanized sources only by default: 50.9k / 3.7k / 10.3k pairs (`sources=None` adds the 2.3M web-mined pairs; `words_per_task=(lo,hi)` joins random words into phrases) | romanized → Telugu script |
-| `samanantar` | Translation | train | `ai4bharat/samanantar` [te], streamed (CC BY-NC; web-mined, noisy references) | en ↔ te sentence |
-| `flores` | Translation | eval (dev / devtest) | `openlanguagedata/flores_plus` (gated: accept terms) | en ↔ te sentence |
-| `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] parquet | utterance (≤30 s); ~10% of refs keep English terms in Latin script (`exclude_latin=True` drops them) |
+| | base | GRPO |
+|---|---:|---:|
+| reward | 0.372 | **0.695** |
+| character error rate | 0.547 | **0.204** |
+| exact match | 4.6% | **29.1%** |
 
-Nayana pages are 3300×2550 and carry per-region bboxes, so the OCR env serves
-region crops rather than whole pages: smaller images, exact references, and a
-natural difficulty knob (`min_chars`/`max_chars`).
+Adapter, training curves and logs:
+[makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
+Base-model numbers and the sampling check are in [`results/baselines.md`](results/baselines.md).
 
-## Reward
+## Quick start
 
-`reward = 1 - CER` (optionally blended with WER via `cer_weight`), capped to
-[0, 1]. Before scoring, both sides go through `telugu_envs.text.normalize`,
-which follows the Sarvam Indic OCR Bench content normalization (NFKC/NFC,
-quote/dash folding, danda/pipe, ZWJ/ZWNJ, HTML/bullets) plus Telugu-digit
-folding; ASR mode also drops punctuation. Model wrappers (`<think>…</think>`,
-code fences) are stripped. Empty or degenerate outputs (tail loops, length
-explosion) get 0 so GRPO can't farm partial credit by repeating.
-
-Text tasks (`telugu_envs.text_env.TeluguTextEnvironment`) reward transliteration with
-`0.8 × (1 − CER) + 0.2 × exact match` and translation with chrF++.
-
-## Usage
-
-```python
-from telugu_envs.base import SharedSampler, TranscriptionAction
-from telugu_envs.data import nayana_regions
-from telugu_envs.ocr.environment import TeluguOCREnvironment
-
-env = TeluguOCREnvironment(SharedSampler(nayana_regions()))
-obs = env.reset(seed=0)            # obs.image_png_b64, obs.instruction, obs.sample_id
-obs = env.step(TranscriptionAction(transcription="..."))
-obs.reward, obs.cer, obs.wer, obs.reference
-```
-
-For GRPO groups, pass the first rollout's `sample_id` to the other resets:
-`env.reset(sample_id=obs.sample_id)`.
-
-Serve over OpenEnv (WebSocket sessions at `/ws`):
-
-```bash
-TELUGU_SOURCE=nayana_regions uvicorn telugu_envs.server:ocr_app --port 8000
-TELUGU_SOURCE=fleurs TELUGU_SPLIT=train uvicorn telugu_envs.server:asr_app --port 8001
-```
-
-## Training on Kaggle (2×T4)
-
-Notebook settings: Accelerator **GPU T4 ×2**, Internet **on**, secret `HF_TOKEN` (optional).
-
-```bash
-!git clone https://<github-token>@github.com/Makireddyvighnesh/telugu-rl-envs
-%cd telugu-rl-envs
-!pip install -q -e ".[train]"
-!pip uninstall -y torchao   # Kaggle ships torchao 0.10; new peft refuses <0.16, and we don't use it
-
-# 1. timing check: 20 steps, then read the s/it from the progress bar
-!accelerate launch --multi_gpu --num_processes 2 --num_machines 1 --mixed_precision no --dynamo_backend no scripts/train_grpo_text.py --max-steps 20 --eval-steps 10 --out outputs/grpo-timing
-
-# 2. full run (default 300 steps × 16 words × 8 answers); add --resume to continue after a timeout
-!accelerate launch --multi_gpu --num_processes 2 --num_machines 1 --mixed_precision no --dynamo_backend no scripts/train_grpo_text.py --out outputs/grpo-qwen15b
-
-# 3. same test as the baseline, with the trained adapter
-!python scripts/eval_text.py --model Qwen/Qwen2.5-1.5B-Instruct --adapter outputs/grpo-qwen15b/final \
-    --replicas 2 --out outputs/grpo-qwen15b-eval
-```
-
-Watch in the logs: `reward` (should rise), `eval_reward` (every 50 steps, held-out
-words), `frac_reward_zero_std` (groups with no learning signal; should stay low), and
-`completions/mean_length` (a jump usually means the model started rambling).
-Baselines to beat are in `results/baselines.md`.
-
-## Notes
-
-In sandboxed networks where Hugging Face's Xet storage (`cas-server.xethub.hf.co`)
-returns 401, set `HF_HUB_DISABLE_XET=1` to download through the regular CDN.
-
-## Transliteration environment (OpenEnv)
-
-[`transliteration/`](transliteration/) packages the transliteration task as a standalone
-OpenEnv environment in the FineEnvs layout: a server that holds the references and grades
-answers, a Gradio playground at `/web`, the OpenEnv task API, a typed client, and a TRL
-adapter that trains through it. See [its README](transliteration/README.md).
+Run the transliteration environment, with its playground at `http://localhost:8000/web`:
 
 ```bash
 docker run -p 8000:8000 ghcr.io/makireddyvighnesh/telugu-transliteration-env:latest
-# or from source
+```
+
+Or from source:
+
+```bash
 pip install -e "./transliteration[train]"
 python -m telugu_transliteration.data.prepare --output snapshot
 TRANSLIT_SNAPSHOT=snapshot python -m telugu_transliteration.server.app
 ```
 
-A 1000-step GRPO run of Qwen2.5-1.5B-Instruct trained through the environment
-(`python -m telugu_transliteration.train_grpo --env-url ...`) took greedy test reward on the
-10,260 Aksharantar test words from 0.372 to 0.695 and exact match from 4.6% to 29.1%. The
-adapter, curves and logs are at
-[makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
+Use it from Python:
+
+```python
+from telugu_transliteration.client import connect
+from telugu_transliteration.models import TransliterationAction
+
+with connect("http://localhost:8000") as env:
+    obs = env.reset(split="test", index=0).observation   # obs.source_text, obs.prompt
+    result = env.step(TransliterationAction(answer="నక్షత్రం"))
+    print(result.reward, result.observation.metrics)      # cer, wer, exact_match, ...
+```
+
+See [`transliteration/README.md`](transliteration/README.md) for the task API, splits and grading.
+
+## Scoring
+
+Both sides are normalized before scoring, following the Sarvam Indic OCR Bench rules:
+NFKC/NFC, quote and dash folding, danda/pipe, zero-width joiners, HTML and bullets, and
+Telugu digits mapped to ASCII. ASR mode also drops punctuation. `<think>` blocks and an
+enclosing code fence are stripped from the answer. Empty answers and answers that loop or
+balloon score 0, so a policy can't farm partial credit by repeating itself. CER is capped
+at 1 per answer.
+
+## Training
+
+GRPO through the environment server (TRL `environment_factory`; the dataset holds task IDs only):
+
+```bash
+TRANSLIT_SNAPSHOT=snapshot python -m telugu_transliteration.server.app &
+accelerate launch --multi_gpu --num_processes 2 -m telugu_transliteration.train_grpo \
+    --env-url http://127.0.0.1:8000 --out outputs/grpo-env
+```
+
+Or in-process, calling the same reward function directly:
+
+```bash
+accelerate launch --multi_gpu --num_processes 2 scripts/train_grpo_text.py --out outputs/grpo-text
+```
+
+Evaluate an adapter on the test set (greedy, plus 8 samples per word on a 1,000-word subset):
+
+```bash
+python scripts/eval_text.py --model Qwen/Qwen2.5-1.5B-Instruct --adapter outputs/grpo-env/final \
+    --replicas 2 --out outputs/eval
+```
+
+On Kaggle, run `pip uninstall -y torchao` after installing: Kaggle ships torchao 0.10, which
+current PEFT rejects.
+
+## Data sources
+
+The in-process environments stream from these sources (`telugu_envs.data.SOURCES`):
+
+| Key | Task | Split | Dataset |
+|---|---|---|---|
+| `nayana_regions` | OCR | train | `Cognitive-Lab/NayanaOCR_Corpus_2025` [te], layout-region crops |
+| `nayana_natural` | OCR | eval | `Cognitive-Lab/NayanaOCRBench_Natural` [te], 461 real pages |
+| `sarvam` | OCR | test | `sarvamai/indic-ocr-bench`, 300 Telugu blocks |
+| `fleurs` | ASR | train / validation / test | `google/fleurs` [te_in] |
+| `aksharantar` | transliteration | train / valid / test | `ai4bharat/Aksharantar`, 50.9k / 3.7k / 10.3k human-romanized pairs |
+| `samanantar` | translation | train | `ai4bharat/samanantar` [te] |
+| `flores` | translation | dev / devtest | `openlanguagedata/flores_plus` (gated) |
 
 ## Layout
 
 ```
+transliteration/      standalone OpenEnv environment (server, playground, client, TRL adapter, Dockerfile)
 telugu_envs/
-  text.py    # normalization, output cleanup, loop detection
-  reward.py  # CER / WER / transcription_reward
-  data.py    # streaming sample sources
-  base.py    # shared single-turn env, actions/observations, SharedSampler
-  ocr/ asr/  # task environments
-  server.py  # OpenEnv FastAPI apps
+  text.py             normalization, output cleanup, loop detection
+  reward.py           CER / WER / chrF rewards
+  data.py             streaming sample sources
+  base.py             shared single-turn environment, SharedSampler
+  ocr/ asr/           OCR and ASR environments
+  text_env.py         transliteration and translation environment
+  server.py           OpenEnv FastAPI apps for the above
+scripts/              GRPO training, evaluation, server smoke test
+results/              baseline numbers
 tests/
 ```
 
-## Roadmap
+## License
 
-- [x] Text normalization + CER/WER reward
-- [x] OCR environment
-- [x] ASR environment
-- [x] Validate streaming against real data (`RUN_HF_TESTS=1 pytest tests/test_integration_hf.py`; end-to-end: `scripts/smoke_test_server.py`)
-- [x] Text environment: transliteration + translation
-- [x] Validate Aksharantar on real data, audit sources (see `aksharantar` docstring)
-- [ ] Validate FLORES (gated: accept terms)
-- [x] Baseline evaluation script
-- [x] GRPO training (TRL + LoRA)
-- [x] Results: before/after curves
-- [x] Transliteration as a standalone OpenEnv environment; GRPO trained through it
-- [ ] OCR and ASR as standalone OpenEnv environments
+The transliteration environment is Apache-2.0. Data stays under its own license: Aksharantar
+and FLEURS are CC BY 4.0, Nayana is CC BY-NC 4.0, Samanantar is CC BY-NC.
