@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-telugu-transliteration"
+version = "0.1.0"
+description = "Telugu transliteration (romanized to Telugu script) from Aksharantar, served through OpenEnv"
+requires-python = ">=3.11,<3.14"
+license = "Apache-2.0"
+dependencies = [
+  "openenv==0.4.2",
+  "huggingface-hub>=0.30",
+  "rapidfuzz>=3.14,<4",
+  "requests>=2.32,<3",
+  "gradio>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1"]
+train = [
+  "trl==1.16.0",
+  "transformers>=5.2,<6",
+  "peft>=0.18,<1",
+  "accelerate>=1.4,<2",
+  "datasets>=3",
+  "tensorboard",
+]
+
+[project.scripts]
+translit-prepare = "telugu_transliteration.data.prepare:main"
+translit-server = "telugu_transliteration.server.app:main"
+translit-smoke = "telugu_transliteration.smoke:main"
+server = "telugu_transliteration.server.app:main"
+
+[tool.setuptools]
+packages = ["telugu_transliteration", "telugu_transliteration.data", "telugu_transliteration.server"]
+package-dir = {telugu_transliteration = "."}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]

@@ -1,0 +1,78 @@
+name: transliteration-env
+
+# Tests the Telugu transliteration OpenEnv environment and publishes its Docker image to
+# GHCR: ghcr.io/<owner>/telugu-transliteration-env
+on:
+  push:
+    branches: [main, openenv-transliteration]
+    paths: ["transliteration/**", "telugu_envs/**", ".github/workflows/transliteration-env.yml"]
+  pull_request:
+    paths: ["transliteration/**", "telugu_envs/**", ".github/workflows/transliteration-env.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install -e . -e "./transliteration[dev]"
+          # The repo pins openenv-core; the environment pins openenv==0.4.2 (same import name).
+          pip uninstall -y openenv-core
+          pip install --force-reinstall --no-deps openenv==0.4.2
+      - name: Unit tests (incl. scoring parity with telugu_envs)
+        working-directory: transliteration
+        run: python -m pytest -q
+      - name: Smoke test over real HTTP/WebSocket
+        run: python -m telugu_transliteration.smoke
+      - name: OpenEnv validate
+        working-directory: transliteration
+        run: openenv validate .
+
+  image:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/telugu-transliteration-env
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=telugu-transliteration-env
+            org.opencontainers.image.description=OpenEnv Telugu transliteration environment (Aksharantar)
+      - uses: docker/build-push-action@v6
+        with:
+          context: transliteration
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: AKSHARANTAR_REVISION=e418c1fc928d9f5393af33268472cf20c1891be8
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Container serves and validates
+        run: |
+          IMAGE=ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/telugu-transliteration-env:sha-${GITHUB_SHA::7}
+          docker run -d --name env -p 8000:8000 "$IMAGE"
+          for i in $(seq 1 60); do curl -sf localhost:8000/healthz && break; sleep 2; done
+          curl -sf localhost:8000/manifest | python -c "import json,sys; m=json.load(sys.stdin); print(m['snapshot_id'], m['counts']['test'])"
+          pip install -q "openenv==0.4.2"
+          openenv validate --url http://localhost:8000
