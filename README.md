@@ -30,6 +30,11 @@ All numbers: greedy decoding on all 10,260 Aksharantar Telugu test words, Kaggle
 | **Qwen2.5-1.5B-Instruct** | **GRPO**, 1000 steps | **0.695** | **0.204** | **29.1%** |
 | **Qwen2.5-0.5B-Instruct** | **OPD** from the GRPO 1.5B, 1000 steps | **0.666** | **0.229** | **24.6%** |
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/plots/test-results-dark.png">
+  <img alt="Exact match on the test set for every model, trained models highlighted" src="results/plots/test-results-light.png">
+</picture>
+
 In plain words:
 
 1. **Base models are bad at this.** Even the 7B gets only 13.7% of words exactly right.
@@ -47,8 +52,28 @@ each (GRPO with the same settings as the 1.5B run), same test:
 | GRPO | 0.441 | 0.458 | 3.4% | 16 min |
 | **OPD** | **0.592** | **0.299** | **15.3%** | 21 min |
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/plots/grpo-vs-opd-05b-dark.png">
+  <img alt="Train reward and exact match over 200 steps for GRPO and OPD on the same 0.5B base" src="results/plots/grpo-vs-opd-05b-light.png">
+</picture>
+
 For the 0.5B, OPD wins clearly: GRPO mostly gets closer spellings (lower CER) but rarely the exact
 word, while OPD copies the teacher's skill and gets 4.5× as many words exactly right.
+
+### Training curves
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/plots/training-curves-dark.png">
+  <img alt="Train reward, exact match, entropy and zero-signal groups per step for all four runs" src="results/plots/training-curves-light.png">
+</picture>
+
+- **Entropy** collapses in every run: the models become nearly deterministic about each word.
+- **Zero-signal groups** (GRPO groups where all 8 answers scored the same) climb to about 60% in the
+  1.5B run, so late in training GRPO learns from fewer and fewer words; its reward levels off around 0.74.
+- The **0.5B GRPO** run (green) has signal but stays under 5% exact: it learns closer spellings, not
+  correct words.
+
+Plot data is in [`results/`](results/); regenerate the images with `python scripts/plot_results.py`.
 
 Trained adapter (1.5B GRPO): [makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
 Per-source breakdowns and sampling checks: [`results/baselines.md`](results/baselines.md).
@@ -193,7 +218,8 @@ scripts/
   train_grpo_text.py    GRPO training
   train_opd.py          on-policy distillation
   eval_text.py          evaluation
-results/              all numbers, with per-source breakdowns
+  plot_results.py       README plots
+results/              all numbers, per-source breakdowns, plot data; plots/ holds the images
 tests/
 ```
 
