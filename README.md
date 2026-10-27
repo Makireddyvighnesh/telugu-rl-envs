@@ -26,6 +26,16 @@ Adapter, training curves and logs:
 [makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
 Base-model numbers and the sampling check are in [`results/baselines.md`](results/baselines.md).
 
+On-policy distillation of that GRPO model into Qwen2.5-0.5B-Instruct + LoRA
+([`scripts/train_opd.py`](scripts/train_opd.py), 1000 steps, reverse KL; the student trains on one T4
+while the teacher scores its rollouts on the other). Same test:
+
+| | 0.5B base | 0.5B OPD | 1.5B GRPO (teacher) |
+|---|---:|---:|---:|
+| reward | 0.156 | **0.666** | 0.695 |
+| character error rate | 0.806 | **0.229** | 0.204 |
+| exact match | 0.5% | **24.6%** | 29.1% |
+
 ## Quick start
 
 Run the transliteration environment, with its playground at `http://localhost:8000/web`:
