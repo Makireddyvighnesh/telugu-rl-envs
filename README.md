@@ -6,6 +6,9 @@ This repo has **Telugu RL environments** (built on [OpenEnv](https://github.com/
 and the **training scripts** we used on them. The main task so far is **transliteration**: the model
 gets a Telugu word typed in English letters and must write it in Telugu script.
 
+Inspired by [AdithyaSK](https://huggingface.co/AdithyaSK)'s
+[RL environments guide](https://huggingface.co/spaces/AdithyaSK/rl-environments-guide).
+
 ```
 input:  nakshatram
 answer: నక్షత్రం
@@ -193,6 +196,11 @@ scripts/
 results/              all numbers, with per-source breakdowns
 tests/
 ```
+
+## Acknowledgements
+
+This work was inspired by [AdithyaSK](https://huggingface.co/AdithyaSK)'s
+[RL environments guide](https://huggingface.co/spaces/AdithyaSK/rl-environments-guide).
 
 ## License
 
