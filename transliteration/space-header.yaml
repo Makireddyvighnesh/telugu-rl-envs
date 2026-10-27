@@ -1,0 +1,18 @@
+# Hugging Face Space settings. HF reads these from the README's YAML header, which GitHub shows
+# as a table, so they live here and are prepended only when publishing (see README.md).
+title: Telugu Transliteration
+emoji: ✍️
+colorFrom: yellow
+colorTo: red
+sdk: docker
+app_port: 8000
+license: apache-2.0
+short_description: OpenEnv romanized-to-Telugu transliteration from Aksharantar
+tags:
+  - openenv
+  - reinforcement-learning
+  - telugu
+  - transliteration
+  - indic
+datasets:
+  - ai4bharat/Aksharantar

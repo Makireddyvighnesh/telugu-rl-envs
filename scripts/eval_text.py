@@ -24,6 +24,8 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+from queue import Empty
+
 import torch.multiprocessing as mp
 
 
@@ -35,7 +37,8 @@ def load_samples(source: str, split: str, limit: int | None):
 
 
 def worker(rank: int, args, shard: list[dict], k: int, temperature: float, queue):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(rank)
+    if not args.device_map:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(rank)
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -43,17 +46,21 @@ def worker(rank: int, args, shard: list[dict], k: int, temperature: float, queue
     tok = AutoTokenizer.from_pretrained(args.model)
     tok.padding_side = "left"
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.float16 if device == "cuda" else torch.float32  # T4 has no bf16
+        args.model,
+        dtype=torch.float16 if device == "cuda" else torch.float32,  # T4 has no bf16
+        device_map=args.device_map,  # "auto" shards a model too big for one GPU across all of them
     )
     if args.adapter:
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, args.adapter).merge_and_unload()
-    model = model.to(device).eval()
+    model = (model if args.device_map else model.to(device)).eval()
+    device = model.device
 
+    bs = args.batch_size if k == 1 else args.sample_batch_size  # k samples per prompt: bs * k sequences in flight
     outputs = []
-    for i in range(0, len(shard), args.batch_size):
-        batch = shard[i : i + args.batch_size]
+    for i in range(0, len(shard), bs):
+        batch = shard[i : i + bs]
         texts = [
             tok.apply_chat_template([{"role": "user", "content": s["prompt"]}], tokenize=False, add_generation_prompt=True)
             for s in batch
@@ -70,7 +77,7 @@ def worker(rank: int, args, shard: list[dict], k: int, temperature: float, queue
         decoded = tok.batch_decode(out, skip_special_tokens=True)
         for j, s in enumerate(batch):
             outputs.append({**s, "predictions": decoded[j * k : (j + 1) * k]})
-        if rank == 0 and (i // args.batch_size) % 10 == 0:
+        if rank == 0 and (i // bs) % 10 == 0:
             print(f"[gpu{rank}] k={k} {i + len(batch)}/{len(shard)}", flush=True)
     queue.put(outputs)
 
@@ -82,7 +89,15 @@ def run_parallel(args, items: list[dict], k: int, temperature: float) -> list[di
     procs = [ctx.Process(target=worker, args=(r, args, shards[r], k, temperature, queue)) for r in range(args.replicas)]
     for p in procs:
         p.start()
-    results = [x for _ in procs for x in queue.get()]
+    results = []
+    for _ in procs:
+        while True:  # a worker that crashes (e.g. OOM) never puts its shard, so don't block on it forever
+            try:
+                results += queue.get(timeout=30)
+                break
+            except Empty:
+                if dead := [p.exitcode for p in procs if p.exitcode not in (None, 0)]:
+                    raise RuntimeError(f"worker exited with {dead[0]}")
     for p in procs:
         p.join()
         if p.exitcode != 0:
@@ -140,13 +155,17 @@ def main():
     ap.add_argument("--split", default="test")
     ap.add_argument("--limit", type=int, default=None, help="cap on greedy-eval samples")
     ap.add_argument("--replicas", type=int, default=2)
+    ap.add_argument("--device-map", default=None, help='"auto" = one replica sharded across all GPUs (e.g. 7B fp16 on 2xT4)')
     ap.add_argument("--batch-size", type=int, default=128)
+    ap.add_argument("--sample-batch-size", type=int, default=32, help="prompts per batch in the k-sample pass")
     ap.add_argument("--max-new-tokens", type=int, default=48)
     ap.add_argument("--k", type=int, default=8, help="samples per prompt for the GRPO-signal check (0 = skip)")
     ap.add_argument("--k-subset", type=int, default=1000)
     ap.add_argument("--temperature", type=float, default=0.9)
     ap.add_argument("--out", default="outputs/eval")
     args = ap.parse_args()
+    if args.device_map:
+        args.replicas = 1
 
     from telugu_envs.text_env import TeluguTextEnvironment
 

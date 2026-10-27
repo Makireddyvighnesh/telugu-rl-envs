@@ -1,29 +1,15 @@
----
-title: Telugu Transliteration
-emoji: ✍️
-colorFrom: yellow
-colorTo: red
-sdk: docker
-app_port: 8000
-license: apache-2.0
-short_description: OpenEnv romanized-to-Telugu transliteration from Aksharantar
-tags:
-  - openenv
-  - reinforcement-learning
-  - telugu
-  - transliteration
-  - indic
-datasets:
-  - ai4bharat/Aksharantar
----
-
 # Telugu transliteration
 
 Read a Telugu word written in Latin letters, write it in Telugu script, and see how it
-scores. This Space serves the human-romanized part of
+scores. This environment serves the human-romanized part of
 [Aksharantar](https://huggingface.co/datasets/ai4bharat/Aksharantar), 65,159 Telugu tasks,
 as an [OpenEnv](https://github.com/meta-pytorch/OpenEnv) environment you can play in the
 browser or train a model against.
+
+```
+input:  nakshatram
+answer: నక్షత్రం
+```
 
 Open the playground at `/web`, press Shuffle, and type the word. The reference is revealed
 after you score.
@@ -95,6 +81,23 @@ python -m telugu_transliteration.data.prepare --output snapshot
 TRANSLIT_SNAPSHOT=snapshot python -m telugu_transliteration.server.app
 python -m telugu_transliteration.smoke --snapshot snapshot
 ```
+
+## Publish as a Hugging Face Space
+
+The Space settings (title, emoji, tags, dataset link) are in [`space-header.yaml`](space-header.yaml),
+kept out of this README so it reads cleanly on GitHub. Put them on top only while pushing:
+
+```bash
+cd transliteration
+{ printf -- '---
+'; grep -v '^#' space-header.yaml; printf -- '---
+
+'; git show HEAD:./README.md; } > README.md
+openenv push --repo-id <your-hf-user>/telugu-transliteration
+git checkout README.md
+```
+
+## License
 
 The words are Aksharantar's, **CC BY 4.0**, with credit to AI4Bharat. The environment code
 is Apache-2.0. Its structure follows the FineEnvs
