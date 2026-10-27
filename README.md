@@ -35,6 +35,18 @@ In plain words:
 3. **On-policy distillation passes that skill down.** The GRPO 1.5B, used as a teacher, brings the
    0.5B from 0.5% to 24.6% exact: 96% of the teacher's reward with a third of its size, in 1.7 h of training.
 
+**Is it OPD, or just more training?** To check, we trained the base 0.5B both ways for 200 steps
+each (GRPO with the same settings as the 1.5B run), same test:
+
+| Qwen2.5-0.5B-Instruct, 200 steps | Reward | CER ↓ | Exact match | Train time |
+|---|---:|---:|---:|---:|
+| base | 0.156 | 0.806 | 0.5% | |
+| GRPO | 0.441 | 0.458 | 3.4% | 16 min |
+| **OPD** | **0.592** | **0.299** | **15.3%** | 21 min |
+
+For the 0.5B, OPD wins clearly: GRPO mostly gets closer spellings (lower CER) but rarely the exact
+word, while OPD copies the teacher's skill and gets 4.5× as many words exactly right.
+
 Trained adapter (1.5B GRPO): [makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
 Per-source breakdowns and sampling checks: [`results/baselines.md`](results/baselines.md).
 

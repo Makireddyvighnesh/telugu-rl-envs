@@ -50,3 +50,19 @@ so an untuned 3B/7B teacher would pull a 1.5B student down, not up.
 
 By origin (reward / exact): Dakshina 0.683 / 26.7%, AK-Freq 0.758 / 33.3%, AK-NEI 0.554 / 12.9%,
 AK-NEF 0.506 / 8.0%. Validation env reward: 0.382 at step 50, 0.620 at 250, 0.671 at 650, 0.673 at 1000.
+
+## 0.5B: GRPO vs OPD, 200 steps each
+
+Same base (Qwen2.5-0.5B-Instruct + LoRA r = 16), 200 steps, 64 completions/step, same greedy test and
+sampling check. GRPO uses the 1.5B run's settings (8 words x 8 samples, T = 0.7, lr 5e-5, 2 DDP processes);
+OPD uses the 1000-step run's settings (64 words x 1 sample, T = 1.0, lr 1e-4, GRPO 1.5B teacher on GPU 1).
+
+| Method | Reward | CER | Exact | chrF | Best of 8 | Exact in any of 8 | Train time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| GRPO | 0.441 | 0.458 | 3.41% | 0.221 | 0.510 | 6.2% | 942 s |
+| OPD | 0.592 | 0.299 | 15.34% | 0.418 | 0.649 | 21.0% | 1,247 s |
+
+By origin (reward / exact): GRPO Dakshina 0.472 / 4.8%, AK-Freq 0.468 / 2.3%, AK-NEI 0.357 / 1.3%,
+AK-NEF 0.303 / 1.1%; OPD Dakshina 0.610 / 18.0%, AK-Freq 0.665 / 17.6%, AK-NEI 0.500 / 8.2%, AK-NEF 0.441 / 4.3%.
+Validation reward at steps 50 / 100 / 150 / 200: GRPO 0.381 / 0.413 / 0.432 / 0.439,
+OPD 0.464 / 0.558 / 0.573 / 0.572 (sampled at each method's training temperature).
