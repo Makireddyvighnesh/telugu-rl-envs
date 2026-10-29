@@ -60,6 +60,24 @@ each (GRPO with the same settings as the 1.5B run), same test:
 For the 0.5B, OPD wins clearly: GRPO mostly gets closer spellings (lower CER) but rarely the exact
 word, while OPD copies the teacher's skill and gets 4.5× as many words exactly right.
 
+### What OPD changed inside the model
+
+We compared the two 0.5B models token by token on 2,000 test words
+([full analysis](results/opd-vs-grpo-token-analysis.md)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/plots/logprobs-alignment-dark.png">
+  <img alt="Reverse KL to teacher, teacher agreement and teacher-rejected tokens over training for GRPO and OPD" src="results/plots/logprobs-alignment-light.png">
+</picture>
+
+- **GRPO taught the 0.5B to write simplified words.** It nearly stopped writing the virama (్, conjuncts)
+  and anusvara (ం) and learned to stop early: 70% of its answers are shorter than the reference. Under a
+  CER reward, a skipped letter costs less than a wrong one, but the word can never be exact.
+- **GRPO sharpened without correcting.** Entropy fell from 1.32 to 0.56 nats, yet the correct token was
+  the top choice as often as before (65.6% → 65.5%).
+- **OPD copied the teacher letter by letter.** On its own answers, the reverse KL to the teacher fell
+  from 4.0 to 0.54 nats per token (GRPO: 2.3), and P(correct virama) rose from 30% to 88% (GRPO: 19%).
+
 ### Training curves
 
 <picture>
@@ -219,6 +237,7 @@ scripts/
   train_opd.py          on-policy distillation
   eval_text.py          evaluation
   plot_results.py       README plots
+  analyze_logprobs.py   token-level GRPO vs OPD analysis (plots: plot_logprobs.py)
 results/              all numbers, per-source breakdowns, plot data; plots/ holds the images
 tests/
 ```
