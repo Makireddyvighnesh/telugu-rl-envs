@@ -1,181 +1,162 @@
-# How OPD and GRPO changed the 0.5B, token by token
+# What OPD changed that GRPO didn't
 
-GRPO and OPD both trained the same Qwen2.5-0.5B-Instruct for 200 steps (64 completions per step).
-OPD ended at 15.3% exact match on the test set, GRPO at 3.4%. This page looks inside the models to see
-**why**: what each method did to the next-token probabilities, and which tokens it taught the model to pick.
+We trained the same small model, Qwen2.5-0.5B-Instruct, to transliterate Telugu in two ways, 200 steps
+each. With on-policy distillation (OPD) it spells 15.3% of test words exactly right. With GRPO it spells
+3.4%. This page looks inside the two models, token by token, to see where the difference comes from.
 
-## Short version
+Inspired by Thinking Machines' [On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/) post.
 
-1. **GRPO taught the 0.5B to write simplified, shorter words.** It almost stopped writing the virama
-   (్, which joins consonants into conjuncts) and the anusvara (ం), and it learned to stop early. Its
-   answers have 6.8 letters where the references have 8.3. On the CER reward that trade is "safe":
-   a dropped letter costs one edit, a wrong conjunct can cost several. But a word with a missing letter
-   is never an exact match.
-2. **GRPO made the model more confident without making it more correct.** Entropy fell from 1.32 to
-   0.56 nats, but the correct token was the model's top choice exactly as often as before (65.6% →
-   65.5%). It mostly sharpened what the base model already preferred, mistakes included.
-3. **OPD copied the teacher's choices, letter by letter.** On the model's own answers, the reverse KL to
-   the teacher fell from 4.0 to 0.54 nats per token (GRPO: 2.3). The teacher's top token matched the
-   student's 87% of the time (GRPO: 71%), and the student picked a token the teacher gives under 10%
-   only 9% of the time (GRPO: 27%).
-4. **The biggest OPD gains are exactly the letters GRPO gave up.** P(correct virama) went 30% → 88% with
-   OPD and 30% → 19% with GRPO; anusvara/visarga 22% → 83% vs 22% → 20%.
-5. **OPD also copied how unsure the teacher is.** Where the teacher is confident, the OPD student is
-   too; where the teacher hesitates, the student's entropy rises with it. GRPO's entropy barely depends on
-   the teacher's.
+## The idea in one table
 
-## Method
+Both methods train on the model's *own* answers (on-policy). They differ in how much feedback each
+answer gets:
 
-- **Models**: base 0.5B; GRPO 0.5B at steps 100 and 200; OPD 0.5B at steps 100, 200 and 1000; the
-  teacher (the GRPO-trained 1.5B that OPD learned from).
-- **Words**: 2,000 Aksharantar Telugu test words, evenly spaced through the test split.
-- **Reference pass**: each model reads the prompt plus the *correct* answer (teacher forcing). At every
-  answer token we record the probability of the correct token, whether it is the model's top choice, the
-  model's entropy, and the full-vocabulary reverse KL(model ‖ teacher).
-- **Greedy pass**: each model writes its own greedy answer. For every token it chose we record the
-  teacher's probability of that token, whether the teacher's top choice agrees, and the reverse KL. This
-  is the quantity OPD minimizes, measured on the model's own rollouts.
-- **Letters, not bytes**: Qwen splits Telugu into byte pieces (1–2 tokens per letter), so token
-  log-probs are summed into the Telugu letter (Unicode code point) they belong to, and each letter is
-  labelled consonant, vowel sign, virama, anusvara/visarga or independent vowel. "Stop" is the end-of-answer token.
-
-Code: [`scripts/analyze_logprobs.py`](../scripts/analyze_logprobs.py) (ran on Kaggle 2×T4, about 16 min)
-and [`scripts/plot_logprobs.py`](../scripts/plot_logprobs.py). Summary table:
-[`logprob_summary.csv`](logprob_summary.csv). The exact-match rates from this run (GRPO-200 3.3%,
-OPD-200 15.2%, OPD-1000 24.4%, teacher 28.8%) agree with the full test-set evaluation.
-
-## 1. On its own answers, OPD moves toward the teacher; GRPO much less
+| Method | Learns from | Feedback per answer |
+|---|---|---|
+| GRPO | its own answers | **one number** for the whole word: `0.8 × (1 − CER) + 0.2 × exact` |
+| OPD | its own answers | **a grade for every token**: how likely the teacher (our GRPO-trained 1.5B) is to write the same thing |
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-alignment-dark.png">
-  <img alt="Reverse KL to teacher, teacher agreement and teacher-rejected tokens over training steps for GRPO and OPD" src="plots/logprobs-alignment-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-feedback-dark.png">
+  <img alt="The same wrong answer, sarkaaruku, with GRPO's single reward and OPD's per-syllable teacher penalties" src="plots/logprobs-feedback-light.png">
 </picture>
 
-| Model | Reverse KL to teacher | Teacher's top token = model's | Chosen tokens teacher gives < 10% |
+The base model writes సరకారుకు for *sarkaaruku*. The correct spelling has a conjunct, ర్కా, where the
+model wrote two separate letters. GRPO scores the whole word 0.71, because most letters are right, and
+reinforces every syllable alike, mistake included. The teacher instead puts its whole penalty (4.7) on the
+one syllable where the conjunct should have been, and nothing on the rest. After 200 steps of OPD the
+student writes the word exactly right.
+
+## The teacher grades each model's answers
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-graded-dark.png">
+  <img alt="Base, GRPO and OPD answers for four words, each syllable shaded by the teacher's penalty" src="plots/logprobs-graded-light.png">
+</picture>
+
+Each box is a syllable a model wrote; the darker the red, the less the teacher agrees with it. The last
+box, *end*, is the model's decision to stop writing. Three patterns repeat across the test set:
+
+- **GRPO skips conjuncts.** In *alladam* it writes ల instead of ల్ల, and the teacher's penalty lands on
+  the very next syllable, where the conjunct was abandoned.
+- **GRPO stops early.** In *holt* it writes హోల and stops. The stop decision alone gets the biggest
+  penalty in the row, because the teacher would have gone on to write the ్ట్ of హోల్ట్.
+- **OPD's answers are almost white.** The teacher agrees with nearly every syllable.
+
+## Results
+
+### OPD closes most of the gap to the teacher; GRPO stalls
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-learning-dark.png">
+  <img alt="Exact match and reverse KL to the teacher over training steps for GRPO and OPD" src="plots/logprobs-learning-light.png">
+</picture>
+
+| Model | Exact match | Reverse KL to teacher on its own answers | Teacher's top token = model's |
 |---|---:|---:|---:|
-| Base 0.5B | 4.02 | 54% | 42% |
-| GRPO, 100 steps | 2.65 | 68% | 29% |
-| GRPO, 200 steps | 2.33 | 71% | 27% |
-| OPD, 100 steps | 0.68 | 85% | 11% |
-| OPD, 200 steps | 0.54 | 87% | 9% |
-| OPD, 1000 steps | 0.25 | 93% | 4% |
+| Base 0.5B | 0.6% | 4.02 | 54% |
+| GRPO, 100 steps | 3.0% | 2.65 | 68% |
+| GRPO, 200 steps | 3.3% | 2.33 | 71% |
+| OPD, 100 steps | 12.5% | 0.68 | 85% |
+| OPD, 200 steps | 15.2% | 0.54 | 87% |
+| OPD, 1000 steps | 24.4% | 0.25 | 93% |
+| Teacher (GRPO 1.5B) | 28.8% | 0 | 100% |
 
-Most of OPD's movement happens in the first 100 steps. GRPO also moves toward the teacher, since both
-are rewarded for right letters, but it gets about a quarter of the way in the same number of steps.
+The right-hand panel is the quantity OPD minimizes. Most of the movement happens in the first 100
+steps. GRPO also drifts toward the teacher, because right letters earn reward under both. But in 200
+steps it closes 42% of the gap in reverse KL, where OPD closes 87%.
 
-## 2. Where the probability went: letter types
+### What GRPO learned to leave out
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-by-class-dark.png">
-  <img alt="Mean probability of the correct letter by letter type for base, GRPO, OPD and teacher" src="plots/logprobs-by-class-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-skipped-dark.png">
+  <img alt="Viramas, anusvaras and letters in each model's answers relative to the correct answers" src="plots/logprobs-skipped-light.png">
 </picture>
 
-Mean P(correct letter) on the reference, in %:
+After 200 steps, GRPO's answers contain only 45% of the conjunct marks (virama ్) and 28% of the
+anusvaras (ం) that the correct answers have, and 81% of the letters. 70% of its answers are shorter
+than the correct one. OPD and the teacher write about as many of each as the correct answers do.
+
+The probabilities on the correct answers tell the same story (mean probability of the correct letter, %):
 
 | Letter type | Base | GRPO-200 | OPD-200 | OPD-1000 | Teacher |
 |---|---:|---:|---:|---:|---:|
 | Consonant | 38 | 49 | 62 | 71 | 72 |
 | Vowel sign | 38 | 48 | 69 | 74 | 73 |
-| Virama (conjunct) | 30 | **19** | **88** | 93 | 91 |
+| Conjunct mark (virama) | 30 | **19** | **88** | 93 | 91 |
 | Anusvara / visarga | 22 | **20** | **83** | 92 | 92 |
-| Independent vowel | 11 | 44 | 49 | 54 | 54 |
-| Stop (end of answer) | 53 | **92** | 84 | 85 | 81 |
+| Stop at the end of the word | 53 | **92** | 84 | 85 | 81 |
 
-GRPO improved the ordinary letters a little and made the virama and anusvara *less* likely than in the
-base model (at step 100 the virama was down to 8%). It also pushed the stop token above the teacher's
-level: the GRPO model is more eager to end the word than the teacher is.
+GRPO made conjuncts *less* likely than the base model did (at step 100 the virama was down to 8%) and
+made stopping more likely than even the teacher does.
 
-The answers show the same thing:
+**Why would GRPO do this?** For a weak model, a conjunct attempt is usually wrong. Under a CER-based
+reward, a skipped letter costs one edit while a wrong attempt can cost several, so the shorter spelling
+scores better on average and GRPO's group-relative advantage reinforces it. The result is a word that
+earns partial credit but can never be exact. The 1.5B GRPO model didn't fall into this (its answers
+contain 99% of the reference viramas), likely because its attempts were right often enough to pay off.
+OPD avoids the trap by construction: the teacher puts high probability on the conjunct, so skipping it
+is penalised at that exact token, whatever the word's final score. This explanation fits the numbers but
+we haven't tested it directly, for example by retraining GRPO with an exact-match-only reward.
 
-| Model | Letters per answer (reference: 8.3) | Answers shorter than reference | Viramas written vs reference | Anusvaras written vs reference |
-|---|---:|---:|---:|---:|
-| Base 0.5B | 10.8 | 20% | 77% | 67% |
-| GRPO, 100 steps | 6.7 | 72% | 21% | 16% |
-| GRPO, 200 steps | 6.8 | 70% | 45% | 28% |
-| OPD, 200 steps | 8.2 | 27% | 113% | 99% |
-| OPD, 1000 steps | 8.2 | 21% | 108% | 98% |
-| Teacher | 8.2 | 22% | 99% | 96% |
-
-This is a local optimum of the GRPO reward for a weak model. The base 0.5B's conjuncts are usually
-wrong, and under `0.8 × (1 − CER) + 0.2 × exact` a skipped letter loses less reward on average than a
-wrong attempt. So the group-relative advantage favours the shorter answer, and the model drifts toward
-simplified spellings that cannot be exact. The 1.5B GRPO model did not fall into this (it writes 99% of
-the reference viramas), likely because its conjunct attempts were right often enough to be rewarded.
-OPD avoids the trap by design: the teacher puts high probability on the virama, so leaving it out is
-penalised at that token, whatever the word's final score.
-
-## 3. Letter by letter: who gained more
+### More confident is not the same as more correct
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-delta-dark.png">
-  <img alt="Change in log-probability of each correct letter versus base, GRPO on x and OPD on y" src="plots/logprobs-delta-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-confidence-dark.png">
+  <img alt="Entropy against the share of correct next-token guesses, with each method's path over training" src="plots/logprobs-confidence-light.png">
 </picture>
 
-Each point is one correct letter in one test word: how much GRPO (x) and OPD (y) changed its
-log-probability from the base model. Above the diagonal, OPD raised it more: 67% of letters.
+Both methods make the model surer of itself (lower entropy). GRPO halved the uncertainty (1.32 → 0.56
+nats), yet the model's first guess was correct as often as before (65.6% → 65.5%): it mostly sharpened
+what it already preferred, mistakes included. OPD went up and to the right, ending next to the teacher
+(OPD-1000: 83.7% correct first guesses at 0.09 nats; teacher: 84.0% at 0.13).
 
-The bands along the left and bottom edges (clipped at −8 nats, i.e. about 3,000× less likely) are letters
-a method made much *less* likely. OPD has more of them: 1,994 of 18,610 letters, against GRPO's 848.
-That is the cost of OPD's confidence (entropy 0.14): when the student has committed to a different
-letter, the correct one gets almost nothing. OPD's drops follow the overall mix of letter types. GRPO's
-are 75% consonants, and viramas are over-represented (21% of its drops, against 10% of all letters).
+### The price of OPD's confidence
 
-## 4. Confidence: matching the teacher vs sharpening
+Reverse KL is *mode-seeking*: the student learns to commit to the teacher's favourite token rather than
+spreading its bets. When the OPD student commits to the wrong letter, it is confidently wrong. Counting
+correct letters whose probability fell more than about 3,000-fold (8 nats) compared with the base
+model: OPD has 1,994 of 18,610 against GRPO's 848. On the words it knows best, the 1000-step OPD student
+is even slightly more confident than its teacher: it gives the correct word more than 50% probability on
+9.4% of words, against the teacher's 8.9%.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-entropy-dark.png">
-  <img alt="Model entropy against teacher entropy, binned, for base, GRPO and OPD" src="plots/logprobs-entropy-light.png">
-</picture>
+## How this was measured
 
-| | Base | GRPO-200 | OPD-200 | OPD-1000 | Teacher |
-|---|---:|---:|---:|---:|---:|
-| Mean entropy on the reference (nats) | 1.32 | 0.56 | 0.14 | 0.09 | 0.13 |
-| Correct token is the model's top choice | 65.6% | 65.5% | 79.7% | 83.7% | 84.0% |
+- **Models**: base 0.5B; GRPO 0.5B after 100 and 200 steps; OPD 0.5B after 100, 200 and 1000 steps; the
+  teacher (the GRPO-trained 1.5B that OPD learned from).
+- **Words**: 2,000 Aksharantar Telugu test words, evenly spaced through the test split. Exact-match
+  rates on this subset agree with the full 10,260-word evaluation.
+- **On the correct answers**: each model reads the prompt plus the correct answer. At every answer token
+  we record the probability of the correct token, whether it is the model's first choice, the model's
+  entropy, and the full-vocabulary reverse KL to the teacher.
+- **On the model's own answers**: each model writes its greedy answer. For each token it chose, we record
+  the teacher's view: the reverse KL, whether the teacher's first choice agrees, and the penalty
+  `log P(student) − log P(teacher)` of the chosen token. That penalty is the per-token signal OPD trains
+  on, and it is what the graded figures show.
+- **Letters and syllables**: Qwen splits Telugu into byte pieces, 1–2 tokens per letter. Token values are
+  summed into the letter they complete, and letters into syllables (a consonant plus its vowel sign,
+  virama, anusvara and any consonant joined to it).
 
-GRPO's line sits high and nearly flat: it became more confident everywhere by about the same amount,
-regardless of whether the letter is easy or genuinely ambiguous, and without picking the right letter
-more often. The OPD lines rise with the teacher's entropy: confident where the teacher is confident,
-less so where the teacher hesitates. At high teacher entropy OPD falls below the diagonal: reverse KL is
-mode-seeking, so when the teacher spreads its probability, the student commits to the teacher's
-favourite option rather than copying the spread.
+To regenerate:
 
-## 5. Probability of the whole correct word
+```bash
+python scripts/analyze_logprobs.py --n 2000 --out outputs/logprob-analysis --model base=Qwen/Qwen2.5-0.5B-Instruct \
+    --model grpo-200=Qwen/Qwen2.5-0.5B-Instruct:<grpo adapter> --model opd-200=Qwen/Qwen2.5-0.5B-Instruct:<opd adapter> ...
+python scripts/plot_logprobs.py --data outputs/logprob-analysis
+python -m http.server 8000   # then open http://localhost:8000/scripts/graded_answers.html for the two graded figures
+```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-word-prob-dark.png">
-  <img alt="Probability of the correct word for each model, words sorted from most to least confident" src="plots/logprobs-word-prob-light.png">
-</picture>
-
-Words where the model gives the correct answer more than 50% probability: base 0%, GRPO-200 0.2%,
-OPD-200 4.0%, OPD-1000 9.4%, teacher 8.9%. After 1000 steps the OPD student is slightly *more* confident
-than its teacher on the words it knows best, again the mode-seeking effect.
-
-The *mean* log-probability of the correct word gets worse after training for every 0.5B model (base
-−19.0, GRPO-200 −24.6, OPD-200 −25.4). That is not a contradiction: a confident model that is wrong gives
-the correct letter almost zero probability, so its few wrong words have very negative log-probabilities.
-The base model is unsure about everything, which makes no word extremely unlikely. That is why this page
-uses top-1 rates, per-letter probabilities and sorted curves instead of means of log-probabilities.
-
-## 6. Examples
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="plots/logprobs-examples-dark.png">
-  <img alt="Per-letter probability of the correct letter for base, GRPO, OPD and teacher on six example words" src="plots/logprobs-examples-light.png">
-</picture>
-
-Words OPD-200 gets right and GRPO-200 doesn't. Each column is one Telugu code point of the correct
-answer (vowel signs and viramas are drawn on their own because the plot doesn't join letters). The
-pattern repeats: GRPO's weak spots are the virama columns (్ in *alladam*, *sarkaaruku*, *padutunnaa*)
-and the final anusvara (ం in *alladam*, *jaambavam*), where OPD and the teacher are near 100%.
+The analysis ran on Kaggle 2×T4 in about 16 minutes. Numbers per model are in
+[`logprob_summary.csv`](logprob_summary.csv); the graded examples are in
+[`graded_examples.json`](graded_examples.json).
 
 ## Caveats
 
-- One run each, 200 steps, one seed. The direction of the gaps is large and consistent across 2,000
-  words, but exact numbers would move with another seed.
-- The two methods used their own learning rates (GRPO 5e-5, OPD 1e-4) and sampling temperatures
-  (0.7 vs 1.0), as in the training runs.
-- "Teacher" is the GRPO 1.5B. OPD can only reach its teacher; OPD-1000 is already within 1–2 points of it
-  on every measure here.
-- The explanation for GRPO dropping conjuncts (a skipped letter is cheaper than a wrong one under CER) is
-  an interpretation that fits the numbers. It was not tested directly, for example by retraining with an
-  exact-match-only reward.
+- One run per method, one seed. The gaps are large and consistent across 2,000 words, but exact numbers
+  would move with another seed.
+- The two methods used their own learning rates (GRPO 5e-5, OPD 1e-4) and sampling temperatures (0.7
+  vs 1.0), as in the training runs.
+- OPD can only get as good as its teacher. The 1000-step OPD student is already within one to two points
+  of it on every measure here.
+- The four graded examples were chosen as words OPD gets right and GRPO doesn't. They show typical
+  patterns, but they are not a random sample.

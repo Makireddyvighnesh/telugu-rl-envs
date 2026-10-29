@@ -1,233 +1,42 @@
-"""Plots and summary numbers for the token-level GRPO vs OPD analysis (scripts/analyze_logprobs.py output).
+"""Figures and summary numbers for the token-level GRPO vs OPD analysis (scripts/analyze_logprobs.py output).
 
     python scripts/plot_logprobs.py --data outputs/logprob-analysis
 
-Writes results/plots/logprobs-<name>-{light,dark}.png and results/logprob_summary.csv.
+Writes results/logprob_summary.csv, results/graded_examples.json and three charts,
+results/plots/logprobs-{learning,skipped,confidence}-{light,dark}.png. The two graded-answer figures
+need real Telugu text shaping, which matplotlib lacks, so they are drawn in a browser from
+graded_examples.json by scripts/graded_answers.html.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.colors as mcolors  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
 
+from analyze_logprobs import char_class  # noqa: E402
 from plot_results import THEMES, style  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "results" / "plots"
+RESULTS = ROOT / "results"
+OUT = RESULTS / "plots"
 PCT = FuncFormatter(lambda v, _: f"{v:.0%}")
-LABEL = {"base": "Base 0.5B", "grpo-200": "GRPO 0.5B, 200 steps", "opd-200": "OPD 0.5B, 200 steps",
-         "opd-1000": "OPD 0.5B, 1000 steps", "teacher": "Teacher (GRPO 1.5B)"}
-MAIN = ["base", "grpo-200", "opd-200", "opd-1000", "teacher"]
-CLASSES = ["consonant", "vowel sign", "virama", "nasal/visarga sign", "vowel", "end"]
-CLASS_LABEL = {"consonant": "Consonant", "vowel sign": "Vowel sign", "virama": "Virama (conjunct)",
-               "nasal/visarga sign": "Anusvara / visarga", "vowel": "Independent vowel", "end": "Stop (end of word)"}
+STEPS = {"base": 0, "grpo-100": 100, "grpo-200": 200, "opd-100": 100, "opd-200": 200, "opd-1000": 1000}
+X = {0: 0, 100: 1, 200: 2, 1000: 3.4}  # evenly spaced up to 200, then a gap to 1000
+VIRAMA, ANUSVARA = "్", "ం"
+EXAMPLES = {"intro": "sarkaaruku", "graded": ["alladam", "jaambavam", "padutunnaa", "holt"]}
 
 
 def colors(t):
-    # Method follows color everywhere: GRPO orange, OPD blue (aqua for the longer run), base muted, teacher ink.
-    return {"base": t["muted"], "grpo-200": t["series"][1], "opd-200": t["series"][0],
-            "opd-1000": t["series"][2], "teacher": t["fg"],
-            "grpo-100": t["series"][1], "opd-100": t["series"][0]}
-
-
-def legend(fig, t, names, y=1.0, ncol=None):
-    c = colors(t)
-    handles = [Line2D([], [], color=c[n], linewidth=2, linestyle="--" if n == "teacher" else "-", marker="o",
-                      markersize=4) for n in names]
-    leg = fig.legend(handles, [LABEL[n] for n in names], loc="upper center", ncol=ncol or len(names), frameon=False,
-                     fontsize=8.5, bbox_to_anchor=(0.5, y))
-    for txt in leg.get_texts():
-        txt.set_color(t["fg"])
-
-
-def char_table(ref):
-    """Per (model, word, character): log-prob of the correct character = sum of its tokens' log-probs."""
-    return ref.groupby(["model", "word_idx", "char_idx", "char_class"], as_index=False).agg(
-        logp=("logp", "sum"), t_logp=("t_logp", "sum"), kl=("kl", "mean"), entropy=("entropy", "mean"),
-        t_entropy=("t_entropy", "mean"))
-
-
-def fig_word_prob(t, words):
-    c = colors(t)
-    fig, ax = plt.subplots(figsize=(7.6, 3.6), facecolor=t["bg"])
-    style(ax, t)
-    for n in MAIN:
-        p = np.sort(np.exp(words.loc[words.model == n, "ref_logp"].to_numpy()))[::-1]
-        share = np.arange(1, len(p) + 1) / len(p)
-        ax.plot(share, p, color=c[n], linewidth=1.8, linestyle="--" if n == "teacher" else "-")
-    ax.set_xlabel("Share of test words", color=t["fg2"], fontsize=8.5)
-    ax.set_ylabel("P(correct word)", color=t["fg2"], fontsize=8.5)
-    ax.xaxis.set_major_formatter(PCT)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_xlim(0, 0.3)
-    ax.set_title("Probability each model gives the correct answer (words sorted, most confident first)",
-                 loc="left", color=t["fg"], fontsize=10, pad=6)
-    ax.text(0.297, 0.97, "remaining words: P ≈ 0 for every model", color=t["fg2"], fontsize=7.5, ha="right", va="top")
-    legend(fig, t, MAIN, y=1.0, ncol=3)
-    fig.tight_layout(rect=(0, 0, 1, 0.86))
-    return fig
-
-
-def fig_delta(t, chars):
-    """Per correct character: change in log-prob vs base, GRPO-200 on x, OPD-200 on y."""
-    piv = chars.pivot_table(index=["word_idx", "char_idx"], columns="model", values="logp")
-    dg = (piv["grpo-200"] - piv["base"]).clip(-8, 12)
-    do = (piv["opd-200"] - piv["base"]).clip(-8, 12)
-    fig, ax = plt.subplots(figsize=(5.4, 5.0), facecolor=t["bg"])
-    style(ax, t)
-    ax.grid(axis="x", color=t["grid"], linewidth=0.8)
-    hb = ax.hexbin(dg, do, gridsize=45, bins="log", mincnt=1, cmap=mcolors.LinearSegmentedColormap.from_list(
-        "m", [t["grid"], t["series"][0]]), linewidths=0)
-    lim = (-8, 12)
-    ax.plot(lim, lim, color=t["fg2"], linewidth=1, linestyle="--")
-    ax.axhline(0, color=t["fg2"], linewidth=0.6)
-    ax.axvline(0, color=t["fg2"], linewidth=0.6)
-    ax.set_xlim(lim)
-    ax.set_ylim(lim)
-    above = float((do > dg).mean())
-    ax.text(-7.5, 11.2, f"OPD gained more: {above:.0%} of letters", color=t["fg"], fontsize=8.5, va="top")
-    ax.text(11.5, -7.5, f"GRPO gained more: {1 - above:.0%}", color=t["fg"], fontsize=8.5, ha="right")
-    ax.set_xlabel("GRPO: change in log P(correct letter) vs base", color=t["fg2"], fontsize=8.5)
-    ax.set_ylabel("OPD: change in log P(correct letter) vs base", color=t["fg2"], fontsize=8.5)
-    ax.set_title("How each method moved every correct letter (200 steps each)", loc="left", color=t["fg"],
-                 fontsize=10, pad=6)
-    cb = fig.colorbar(hb, ax=ax, fraction=0.04, pad=0.02)
-    cb.ax.tick_params(colors=t["fg2"], labelsize=7.5)
-    cb.outline.set_visible(False)
-    cb.set_label("letters (log scale)", color=t["fg2"], fontsize=7.5)
-    fig.tight_layout()
-    return fig
-
-
-def fig_by_class(t, chars):
-    c = colors(t)
-    names = ["base", "grpo-200", "opd-200", "teacher"]
-    m = chars.assign(p=np.exp(chars.logp)).groupby(["char_class", "model"]).p.mean().unstack()
-    classes = [k for k in CLASSES if k in m.index]
-    fig, ax = plt.subplots(figsize=(7.6, 0.55 * len(classes) + 1.4), facecolor=t["bg"])
-    style(ax, t)
-    ax.grid(axis="y", visible=False)
-    ax.grid(axis="x", color=t["grid"], linewidth=0.8)
-    for i, k in enumerate(classes):
-        ax.plot([m.loc[k, names].min(), m.loc[k, names].max()], [i, i], color=t["grid"], linewidth=3, zorder=1)
-        for n in names:
-            ax.plot(m.loc[k, n], i, "o", color=c[n], markersize=7 if n != "teacher" else 6, zorder=3,
-                    markerfacecolor=c[n] if n != "teacher" else t["bg"], markeredgewidth=1.6)
-    counts = chars[chars.model == "base"].char_class.value_counts()
-    ax.set_yticks(range(len(classes)), [f"{CLASS_LABEL[k]}  ({counts.get(k, 0):,})" for k in classes],
-                  color=t["fg"], fontsize=8.5)
-    ax.invert_yaxis()
-    ax.xaxis.set_major_formatter(PCT)
-    ax.set_xlim(0, 1)
-    ax.set_xlabel("Mean P(correct letter), teacher-forced on the reference", color=t["fg2"], fontsize=8.5)
-    legend(fig, t, names, y=1.0)
-    fig.tight_layout(rect=(0, 0, 1, 0.9))
-    return fig
-
-
-def fig_alignment(t, greedy):
-    c = colors(t)
-    g = greedy.assign(rejected=np.exp(greedy.t_logp) < 0.1)
-    per = g.groupby("model").agg(kl=("kl", "mean"), agree=("agree", "mean"), rejected=("rejected", "mean"))
-    runs = {"GRPO": ["base", "grpo-100", "grpo-200"], "OPD": ["base", "opd-100", "opd-200", "opd-1000"]}
-    steps = {"base": 0, "grpo-100": 100, "grpo-200": 200, "opd-100": 100, "opd-200": 200, "opd-1000": 1000}
-    fig, axes = plt.subplots(1, 3, figsize=(9.6, 3.2), facecolor=t["bg"])
-    panels = [("kl", "Reverse KL to teacher (nats/token)", None),
-              ("agree", "Teacher's top token = model's", PCT),
-              ("rejected", "Chosen tokens the teacher gives < 10%", PCT)]
-    for ax, (key, title, fmt) in zip(axes, panels):
-        style(ax, t)
-        for method, names in runs.items():
-            names = [n for n in names if n in per.index]
-            col = c["grpo-200"] if method == "GRPO" else c["opd-200"]
-            xs, ys = [steps[n] for n in names], [per.loc[n, key] for n in names]
-            ax.plot(xs, ys, color=col, linewidth=1.8, marker="o", markersize=4)
-            ax.text(xs[-1] + 25, ys[-1], method, color=t["fg"], fontsize=8.5, va="center")
-        ax.set_xscale("symlog", linthresh=100)
-        ax.set_xticks([0, 100, 200, 1000], ["0", "100", "200", "1000"])
-        ax.set_xlim(-5, 1900)
-        ax.set_title(title, loc="left", color=t["fg"], fontsize=9.5, pad=6)
-        ax.set_xlabel("Training step", color=t["fg2"], fontsize=8.5)
-        if fmt:
-            ax.yaxis.set_major_formatter(fmt)
-        ax.set_ylim(bottom=0, top=max(1.0, per[key].max() * 1.12) if fmt else per[key].max() * 1.12)
-    fig.text(0.01, 0.005, "Measured on each model's own greedy answers to the same test words", color=t["fg2"],
-             fontsize=7.5)
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
-    return fig
-
-
-def fig_entropy(t, ref):
-    c = colors(t)
-    names = ["base", "grpo-200", "opd-200", "opd-1000"]
-    bins = np.array([0, 0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 10])
-    r = ref[ref.model.isin(names)].assign(b=lambda d: np.digitize(d.t_entropy, bins) - 1)
-    m = r.groupby(["model", "b"]).agg(x=("t_entropy", "mean"), y=("entropy", "mean"), n=("entropy", "size")).reset_index()
-    m = m[m.n >= 30]
-    fig, ax = plt.subplots(figsize=(6.4, 4.2), facecolor=t["bg"])
-    style(ax, t)
-    ax.grid(axis="x", color=t["grid"], linewidth=0.8)
-    xt, yt = float(m.x.max()) * 1.08, float(m.y.max()) * 1.08
-    ax.plot([0, xt], [0, xt], color=t["fg2"], linewidth=1, linestyle="--")
-    ax.text(xt * 0.98, xt * 0.98 + 0.05, "same uncertainty as the teacher", color=t["fg2"], fontsize=7.5,
-            ha="right", va="bottom")
-    for n in names:
-        d = m[m.model == n].sort_values("x")
-        ax.plot(d.x, d.y, color=c[n], linewidth=1.8, marker="o", markersize=4)
-    ax.set_xlim(0, xt)
-    ax.set_ylim(0, yt)
-    ax.set_xlabel("Teacher's entropy at that token (nats)", color=t["fg2"], fontsize=8.5)
-    ax.set_ylabel("Model's entropy (nats)", color=t["fg2"], fontsize=8.5)
-    ax.set_title("Uncertainty on the reference, binned by how unsure the teacher is", loc="left", color=t["fg"],
-                 fontsize=10, pad=6)
-    legend(fig, t, names, y=1.0, ncol=2)
-    fig.tight_layout(rect=(0, 0, 1, 0.86))
-    return fig
-
-
-def fig_examples(t, chars, words, k=6):
-    names = ["base", "grpo-200", "opd-200", "teacher"]
-    w = words.pivot_table(index="word_idx", columns="model", values="exact")
-    lens = words[words.model == "base"].set_index("word_idx").reference.str.len()
-    pick = w[(w["opd-200"] == 1) & (w["grpo-200"] == 0) & (w["base"] == 0)].index
-    pick = [i for i in pick if 4 <= lens[i] <= 9][:k]
-    if not pick:
-        return None
-    fig, axes = plt.subplots(len(pick), 1, figsize=(6.8, 1.05 * len(pick) + 0.6), facecolor=t["bg"])
-    axes = np.atleast_1d(axes)
-    cmap = mcolors.LinearSegmentedColormap.from_list("p", [t["bg"], t["series"][0]])
-    for ax, wi in zip(axes, pick):
-        ref = words[(words.model == "base") & (words.word_idx == wi)].iloc[0]
-        cw = chars[(chars.word_idx == wi) & (chars.char_class != "end")]
-        grid = np.array([[np.exp(cw[(cw.model == n) & (cw.char_idx == j)].logp.sum()) for j in range(len(ref.reference))]
-                         for n in names])
-        ax.imshow(grid, cmap=cmap, vmin=0, vmax=1, aspect="auto")
-        for j, ch in enumerate(ref.reference):
-            ax.text(j, -0.85, ch, ha="center", va="bottom", fontsize=10, color=t["fg"], family="Nirmala UI")
-            for i in range(len(names)):
-                ax.text(j, i, f"{grid[i, j]:.0%}" if grid[i, j] < 0.995 else "", ha="center", va="center",
-                        fontsize=6.5, color=t["fg"])
-        ax.set_yticks(range(len(names)), [LABEL[n].split(",")[0] for n in names], fontsize=7, color=t["fg2"])
-        ax.set_xticks([])
-        for s in ax.spines.values():
-            s.set_visible(False)
-        ax.set_title(f"{ref.source_text}  →  GRPO wrote {words[(words.model == 'grpo-200') & (words.word_idx == wi)].prediction.iloc[0]}",
-                     loc="left", fontsize=8, color=t["fg2"], pad=16, family=["DejaVu Sans", "Nirmala UI"])
-    fig.text(0.01, 0.995, "P(correct letter) per model, words OPD-200 gets right and GRPO-200 doesn't (blank = ≥ 99.5%)",
-             color=t["fg"], fontsize=8.5, va="top")
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    return fig
+    return {"base": t["muted"], "grpo": t["series"][1], "opd": t["series"][0], "teacher": t["fg"]}
 
 
 def summary(words, ref, greedy):
@@ -236,32 +45,191 @@ def summary(words, ref, greedy):
     for n, w in words.groupby("model"):
         r, gg = ref[ref.model == n], g[g.model == n]
         rows.append({"model": n, "words": len(w), "exact": w.exact.mean(), "cer": w.cer.mean(),
-                     "median_p_correct_word": float(np.median(np.exp(w.ref_logp))),
                      "ref_token_top1": r.top1.mean(), "ref_entropy": r.entropy.mean(), "ref_kl_to_teacher": r.kl.mean(),
                      "greedy_kl_to_teacher": gg.kl.mean(), "greedy_teacher_agree": gg.agree.mean(),
-                     "greedy_teacher_rejected": gg.rejected.mean()})
+                     "greedy_teacher_rejected": gg.rejected.mean(),
+                     "answer_len_vs_ref": w.prediction.str.len().sum() / w.reference.str.len().sum(),
+                     "virama_vs_ref": w.prediction.str.count(VIRAMA).sum() / w.reference.str.count(VIRAMA).sum(),
+                     "anusvara_vs_ref": w.prediction.str.count(ANUSVARA).sum() / w.reference.str.count(ANUSVARA).sum()})
     order = ["base", "grpo-100", "grpo-200", "opd-100", "opd-200", "opd-1000", "teacher"]
     return pd.DataFrame(rows).set_index("model").reindex([o for o in order if o in {r["model"] for r in rows}])
+
+
+def fig_learning(t, s):
+    """Exact match and distance to the teacher over training, GRPO vs OPD from the same 0.5B base."""
+    c = colors(t)
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.5), facecolor=t["bg"])
+    panels = [("exact", "Words spelled exactly right", PCT, s.loc["teacher", "exact"]),
+              ("greedy_kl_to_teacher", "How differently from the teacher it writes", None, 0.0)]
+    for ax, (key, title, fmt, teacher) in zip(axes, panels):
+        style(ax, t)
+        ax.axhline(teacher, color=c["teacher"], linewidth=1.2, linestyle="--")
+        lbl = f"teacher (GRPO 1.5B)  {teacher:.0%}" if fmt else "teacher = 0"
+        ax.text(4.55, teacher, lbl, color=t["fg"], fontsize=8.5, va="bottom", ha="right")
+        for method, names in (("GRPO", ["base", "grpo-100", "grpo-200"]), ("OPD", ["base", "opd-100", "opd-200", "opd-1000"])):
+            xs = [X[STEPS[n]] for n in names]
+            ys = [s.loc[n, key] for n in names]
+            col = c[method.lower()]
+            ax.plot(xs[:3], ys[:3], color=col, linewidth=2, marker="o", markersize=5)
+            if len(xs) > 3:
+                ax.plot(xs[2:], ys[2:], color=col, linewidth=2, marker="o", markersize=5, linestyle=(0, (2, 2)))
+            val = f"{ys[-1]:.0%}" if fmt else f"{ys[-1]:.2f}"
+            ax.text(xs[-1] + 0.12, ys[-1], f"{method}  {val}", color=col, fontsize=9, va="center", weight="bold")
+        ax.set_xticks([X[k] for k in (0, 100, 200, 1000)], ["start", "100", "200", "1000"])
+        ax.set_xlim(-0.2, 4.6)
+        ax.set_xlabel("Training steps (same 0.5B base model)", color=t["fg2"], fontsize=8.5)
+        ax.set_title(title, loc="left", color=t["fg"], fontsize=10.5, pad=8)
+        if fmt:
+            ax.yaxis.set_major_formatter(fmt)
+            ax.set_ylim(0, max(0.32, teacher * 1.12))
+        else:
+            ax.set_ylim(-0.12, s.loc["base", key] * 1.1)
+            ax.set_ylabel("nats per token (reverse KL)", color=t["fg2"], fontsize=8)
+    axes[1].text(0.1, s.loc["base", "greedy_kl_to_teacher"] * 1.02, "lower = closer to the teacher", color=t["fg2"],
+                 fontsize=7.5, va="bottom")
+    fig.tight_layout()
+    return fig
+
+
+def fig_skipped(t, s):
+    """Letters the answers contain, relative to the correct answers (100% = same as the references)."""
+    c = colors(t)
+    models = [("base", "Base 0.5B", c["base"]), ("grpo-200", "GRPO, 200 steps", c["grpo"]),
+              ("opd-200", "OPD, 200 steps", c["opd"]), ("teacher", "Teacher (1.5B)", c["teacher"])]
+    panels = [("virama_vs_ref", "Conjunct marks (virama)"), ("anusvara_vs_ref", "Anusvara (nasal ending)"), ("answer_len_vs_ref", "Letters per answer")]
+    fig, axes = plt.subplots(1, 3, figsize=(9.6, 2.9), facecolor=t["bg"], sharey=True)
+    for ax, (key, title) in zip(axes, panels):
+        style(ax, t)
+        ax.grid(axis="y", visible=False)
+        ax.grid(axis="x", color=t["grid"], linewidth=0.8)
+        vals = [s.loc[m, key] for m, _, _ in models]
+        ax.barh(range(len(models)), vals, height=0.62, color=[col for _, _, col in models])
+        for i, v in enumerate(vals):
+            ax.text(v + 0.03, i, f"{v:.0%}", va="center", fontsize=9, color=t["fg"])
+        ax.axvline(1.0, color=t["fg2"], linewidth=1, linestyle="--")
+        ax.set_xlim(0, 1.6)
+        ax.xaxis.set_major_formatter(PCT)
+        ax.set_xticks([0, 0.5, 1.0, 1.5])
+        ax.set_title(title, loc="left", color=t["fg"], fontsize=10.5, pad=8, family=["DejaVu Sans", "Nirmala UI"])
+    axes[0].set_yticks(range(len(models)), [n for _, n, _ in models], color=t["fg"], fontsize=9)
+    axes[0].invert_yaxis()
+    fig.text(0.5, 0.02, "Count in the model's answers ÷ count in the correct answers, 2,000 test words  ·  "
+             "dashed line = same as the correct answers", color=t["fg2"], fontsize=8, ha="center")
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    return fig
+
+
+def fig_confidence(t, s):
+    """Uncertainty (entropy) against how often the first guess is right, with each method's path."""
+    c = colors(t)
+    fig, ax = plt.subplots(figsize=(6.6, 4.3), facecolor=t["bg"])
+    style(ax, t)
+    ax.grid(axis="x", color=t["grid"], linewidth=0.8)
+    for method, names in (("grpo", ["base", "grpo-100", "grpo-200"]), ("opd", ["base", "opd-100", "opd-200", "opd-1000"])):
+        xs = [s.loc[n, "ref_entropy"] for n in names]
+        ys = [s.loc[n, "ref_token_top1"] for n in names]
+        for i in range(len(xs) - 1):
+            ax.annotate("", xy=(xs[i + 1], ys[i + 1]), xytext=(xs[i], ys[i]),
+                        arrowprops=dict(arrowstyle="-|>", color=c[method], lw=2, shrinkA=5, shrinkB=5, mutation_scale=12))
+        offs = {"grpo-100": (0, -14), "grpo-200": (10, 4), "opd-100": (-6, -14), "opd-200": (14, -10), "opd-1000": (12, -4)}
+        for n, x, y in zip(names[1:], xs[1:], ys[1:]):
+            ax.plot(x, y, "o", color=c[method], markersize=6)
+            ax.annotate(f"{STEPS[n]}", (x, y), xytext=offs[n], textcoords="offset points", color=t["fg2"], fontsize=7.5,
+                        ha="center", va="center")
+    bx, by = s.loc["base", "ref_entropy"], s.loc["base", "ref_token_top1"]
+    tx, ty = s.loc["teacher", "ref_entropy"], s.loc["teacher", "ref_token_top1"]
+    ax.plot(bx, by, "o", color=c["base"], markersize=8)
+    ax.text(bx, by + 0.015, "Base 0.5B", color=t["fg"], fontsize=9, ha="center", va="bottom")
+    ax.plot(tx, ty, "*", color=c["teacher"], markersize=13)
+    ax.text(tx + 0.04, ty + 0.012, "Teacher", color=t["fg"], fontsize=9, va="bottom")
+    g2 = s.loc["grpo-200"]
+    ax.text(g2.ref_entropy + 0.12, g2.ref_token_top1 - 0.065, "GRPO: more confident,\nnot more correct",
+            color=c["grpo"], fontsize=9, weight="bold", va="top")
+    o2 = s.loc["opd-200"]
+    ax.text(o2.ref_entropy + 0.62, o2.ref_token_top1 + 0.03, "OPD: more confident\nand more correct,\nclose to the teacher",
+            color=c["opd"], fontsize=9, weight="bold", va="center")
+    ax.set_xlim(1.45, -0.05)  # reversed: right = more confident
+    ax.set_ylim(0.55, 0.9)
+    ax.yaxis.set_major_formatter(PCT)
+    ax.set_xlabel("Uncertainty (entropy, nats)   ← less sure  ·  more sure →", color=t["fg2"], fontsize=8.5)
+    ax.set_ylabel("Next-token guesses that are correct", color=t["fg2"], fontsize=8.5)
+    ax.set_title("Becoming confident vs becoming correct", loc="left", color=t["fg"], fontsize=10.5, pad=8)
+    fig.text(0.01, 0.01, "Teacher-forced on the correct answers of 2,000 test words; numbers are training steps",
+             color=t["fg2"], fontsize=7.5)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    return fig
+
+
+def syllables(s: str):
+    """Split Telugu text into syllables: signs and the consonant after a virama attach to the previous one."""
+    out = []
+    for i, ch in enumerate(s):
+        k = char_class(ch)
+        if out and (k in ("vowel sign", "virama", "nasal/visarga sign") or (i and s[i - 1] == VIRAMA and k == "consonant")):
+            out[-1].append(i)
+        else:
+            out.append([i])
+    return out
+
+
+def graded_examples(words, greedy, tokenizer):
+    """Each model's greedy answer per syllable, with the teacher's penalty (log p_student - log p_teacher)."""
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(tokenizer)
+    eos = tok.convert_tokens_to_ids("<|im_end|>")
+
+    def grade(model, wi):
+        rows = greedy[(greedy.model == model) & (greedy.word_idx == wi)].sort_values("pos")
+        ids, pen = rows.token_id.tolist(), (rows.logp - rows.t_logp).tolist()
+        stop = None
+        if ids and ids[-1] == eos:
+            stop, ids, pen = pen[-1], ids[:-1], pen[:-1]
+        text = tok.decode(ids)
+        b2c = [ci for ci, ch in enumerate(text) for _ in ch.encode("utf-8")]
+        cpen, pos = [0.0] * len(text), 0
+        for i, p in zip(ids, pen):
+            pos += len(tok.convert_ids_to_tokens(i))
+            cpen[b2c[min(pos, len(b2c)) - 1]] += p
+        return {"syllables": [{"text": "".join(text[j] for j in cl), "penalty": round(sum(cpen[j] for j in cl), 2)}
+                              for cl in syllables(text)],
+                "stop": None if stop is None else round(stop, 2)}
+
+    by_src = words[words.model == "base"].set_index("source_text")
+    out = {"intro": None, "graded": []}
+    for key in [EXAMPLES["intro"]] + EXAMPLES["graded"]:
+        wi = int(by_src.loc[key, "word_idx"])
+        entry = {"source": key, "reference": by_src.loc[key, "reference"],
+                 "reference_syllables": ["".join(by_src.loc[key, "reference"][j] for j in cl)
+                                         for cl in syllables(by_src.loc[key, "reference"])], "answers": {}}
+        for m in ("base", "grpo-200", "opd-200"):
+            w = words[(words.model == m) & (words.word_idx == wi)].iloc[0]
+            entry["answers"][m] = {"text": w.prediction, "exact": bool(w.exact), "reward": round(float(w.reward), 2),
+                                   **grade(m, wi)}
+        if key == EXAMPLES["intro"]:
+            out["intro"] = entry
+        else:
+            out["graded"].append(entry)
+    return out
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="outputs/logprob-analysis")
+    ap.add_argument("--tokenizer", default="Qwen/Qwen2.5-0.5B-Instruct")
     args = ap.parse_args()
     d = Path(args.data)
     ref, greedy, words = (pd.read_parquet(d / f) for f in ("tokens_ref.parquet", "tokens_greedy.parquet", "words.parquet"))
-    chars = char_table(ref)
     s = summary(words, ref, greedy)
-    s.to_csv(ROOT / "results" / "logprob_summary.csv", float_format="%.4f")
+    s.to_csv(RESULTS / "logprob_summary.csv", float_format="%.4f")
     print(s.round(3).to_string())
+    ex = graded_examples(words, greedy, args.tokenizer)
+    (RESULTS / "graded_examples.json").write_text(json.dumps(ex, ensure_ascii=False, indent=1), encoding="utf-8")
+    print("wrote results/graded_examples.json")
     OUT.mkdir(parents=True, exist_ok=True)
     for mode, t in THEMES.items():
-        for name, fn in (("word-prob", lambda: fig_word_prob(t, words)), ("delta", lambda: fig_delta(t, chars)),
-                         ("by-class", lambda: fig_by_class(t, chars)), ("alignment", lambda: fig_alignment(t, greedy)),
-                         ("entropy", lambda: fig_entropy(t, ref)), ("examples", lambda: fig_examples(t, chars, words))):
-            fig = fn()
-            if fig is None:
-                continue
+        for name, fn in (("learning", fig_learning), ("skipped", fig_skipped), ("confidence", fig_confidence)):
+            fig = fn(t, s)
             path = OUT / f"logprobs-{name}-{mode}.png"
             fig.savefig(path, dpi=200, facecolor=t["bg"])
             plt.close(fig)
