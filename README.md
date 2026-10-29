@@ -60,6 +60,24 @@ each (GRPO with the same settings as the 1.5B run), same test:
 For the 0.5B, OPD wins clearly: GRPO mostly gets closer spellings (lower CER) but rarely the exact
 word, while OPD copies the teacher's skill and gets 4.5× as many words exactly right.
 
+### What OPD changed inside the model
+
+GRPO gives each answer one score. OPD's teacher grades every syllable, so the student learns exactly
+where it went wrong ([full token-level analysis](results/opd-vs-grpo-token-analysis.md)):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="results/plots/logprobs-feedback-dark.png">
+  <img alt="The same wrong answer with GRPO's single reward and OPD's per-syllable teacher penalties" src="results/plots/logprobs-feedback-light.png">
+</picture>
+
+- **GRPO taught the 0.5B to write simplified words.** Its answers keep only 45% of the conjunct marks
+  (్) and 28% of the anusvaras (ం) of the correct answers, and 70% of them stop too early. Under a CER
+  reward a skipped letter costs less than a wrong one, but the word can never be exact.
+- **GRPO made the model more confident, not more correct.** Uncertainty halved, yet its first guess was
+  right as often as before (65.6% → 65.5%).
+- **OPD copied the teacher syllable by syllable.** On its own answers the teacher agrees with its top
+  token 87% of the time (GRPO: 71%), and P(correct conjunct mark) rose from 30% to 88% (GRPO: 19%).
+
 ### Training curves
 
 <picture>
@@ -219,6 +237,7 @@ scripts/
   train_opd.py          on-policy distillation
   eval_text.py          evaluation
   plot_results.py       README plots
+  analyze_logprobs.py   token-level GRPO vs OPD analysis (figures: plot_logprobs.py, graded_answers.html)
 results/              all numbers, per-source breakdowns, plot data; plots/ holds the images
 tests/
 ```

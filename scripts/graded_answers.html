@@ -1,0 +1,200 @@
+<!doctype html>
+<!--
+Draws the two graded-answer figures from results/graded_examples.json (written by scripts/plot_logprobs.py).
+They are drawn in the browser because Telugu needs text shaping, which matplotlib lacks.
+
+    python -m http.server 8000          # from the repo root
+    open http://localhost:8000/scripts/graded_answers.html, then click the download links
+
+Saves results/plots/logprobs-{feedback,graded}-{light,dark}.png.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graded answers</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; background: #eee; margin: 0; padding: 16px; }
+  canvas { display: block; margin: 0 0 8px; max-width: 100%; height: auto; box-shadow: 0 1px 4px #0002; }
+  a { display: inline-block; margin: 0 12px 24px 0; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+const THEMES = {
+  light: { bg: "#fcfcfb", fg: "#0b0b0b", fg2: "#52514e", line: "#e7e6e2", box: "#f1f0ec", red: "#d63b3b",
+           grpo: "#eb6834", opd: "#2a78d6", ok: "#1f7a3a", bad: "#b3261e" },
+  dark:  { bg: "#1a1a19", fg: "#f0efec", fg2: "#c3c2b7", line: "#34332f", box: "#262624", red: "#ef5f5f",
+           grpo: "#d95926", opd: "#3987e5", ok: "#5fbf7a", bad: "#f07167" },
+};
+const SCALE = 2, W = 960;
+const LATIN = '"Segoe UI", system-ui, sans-serif', TELUGU = '"Nirmala UI", "Noto Sans Telugu", sans-serif';
+const MAXP = 10;  // penalty (nats) that gets the darkest red
+
+function mix(a, b, f) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return "rgb(" + x.map((v, i) => Math.round(v + (y[i] - v) * f)).join(",") + ")";
+}
+const shade = (p) => Math.pow(Math.min(1, Math.max(0, p) / MAXP), 0.7);
+
+function canvas(h) {
+  const c = document.createElement("canvas");
+  c.width = W * SCALE; c.height = h * SCALE;
+  const ctx = c.getContext("2d");
+  ctx.scale(SCALE, SCALE);
+  return [c, ctx];
+}
+function text(ctx, s, x, y, { size = 14, color, weight = 400, font = LATIN, align = "left", base = "alphabetic" } = {}) {
+  ctx.font = `${weight} ${size}px ${font}`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base;
+  ctx.fillText(s, x, y);
+  return ctx.measureText(s).width;
+}
+function rrect(ctx, x, y, w, h, r, fill, stroke) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+}
+
+// One row of syllable boxes. fills[i] gives the box color; returns box geometry for annotations.
+function boxes(ctx, t, items, x, y, { h = 40, fills, numbers, stop, maxX = W - 300 } = {}) {
+  const out = [];
+  let cut = false;
+  items.forEach((s, i) => {
+    if (cut) return;
+    if (x > maxX) {  // long rambling answers: show the start and an ellipsis
+      text(ctx, "…", x + 4, y + h / 2 + 1, { size: 20, color: t.fg2, base: "middle" });
+      cut = true; stop = null; out.push({ x, w: 24 });
+      return;
+    }
+    if (!s.trim()) s = "·";
+    ctx.font = `400 22px ${TELUGU}`;
+    const w = Math.max(40, ctx.measureText(s).width + 24);
+    const f = fills[i];
+    rrect(ctx, x, y, w, h, 7, f.fill, t.line);
+    text(ctx, s, x + w / 2, y + h / 2 + 1, { size: 22, font: TELUGU, color: f.dark ? "#fff" : t.fg, align: "center", base: "middle" });
+    if (numbers) text(ctx, numbers[i], x + w / 2, y + h + 15, { size: 11, color: t.fg2, align: "center" });
+    out.push({ x, w });
+    x += w + 6;
+  });
+  if (stop) {
+    const w = 46;
+    rrect(ctx, x + 4, y, w, h, 7, stop.fill, t.line);
+    text(ctx, "end", x + 4 + w / 2, y + h / 2 + 1, { size: 12, color: stop.dark ? "#fff" : t.fg2, align: "center", base: "middle", weight: 600 });
+    if (stop.number) text(ctx, stop.number, x + 4 + w / 2, y + h + 15, { size: 11, color: t.fg2, align: "center" });
+    out.push({ x: x + 4, w });
+  }
+  return out;
+}
+const redFill = (t, p) => ({ fill: mix(t.box, t.red, shade(p)), dark: shade(p) > 0.62 });
+const fmt = (p) => (p >= 0.5 ? p.toFixed(1) : "0");
+
+function legend(ctx, t, x, y) {
+  text(ctx, "Teacher's penalty", x, y + 13, { size: 12, color: t.fg2 });
+  const gx = x + 120, gw = 360;
+  for (let i = 0; i < 60; i++) {
+    ctx.fillStyle = mix(t.box, t.red, Math.pow(i / 59, 0.7));
+    ctx.fillRect(gx + i * gw / 60, y + 2, gw / 60 + 0.5, 14);
+  }
+  text(ctx, "0 = the teacher agrees", gx, y + 34, { size: 11, color: t.fg2 });
+  text(ctx, `${MAXP}+ = the teacher would not write this`, gx + gw, y + 34, { size: 11, color: t.fg2, align: "right" });
+  text(ctx, "log P(student) − log P(teacher) of each", gx + gw + 24, y + 11, { size: 11, color: t.fg2 });
+  text(ctx, "written token, summed per syllable (nats)", gx + gw + 24, y + 26, { size: 11, color: t.fg2 });
+}
+
+function feedbackFigure(t, ex) {
+  const [c, ctx] = canvas(430);
+  ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, 430);
+  const a = ex.answers["grpo-200"];
+  text(ctx, "One answer, two kinds of feedback", 28, 42, { size: 21, weight: 600, color: t.fg });
+  let x = 28;
+  x += text(ctx, `The 0.5B model was asked to write “${ex.source}” in Telugu. It wrote `, x, 70, { size: 14, color: t.fg2 });
+  x += text(ctx, a.text, x, 70, { size: 16, color: t.fg, font: TELUGU });
+  x += text(ctx, " ; the correct spelling is ", x, 70, { size: 14, color: t.fg2 });
+  text(ctx, ex.reference, x, 70, { size: 16, color: t.fg, font: TELUGU });
+
+  const syl = a.syllables.map((s) => s.text);
+  // GRPO row: one number for everything.
+  text(ctx, "GRPO", 28, 128, { size: 16, weight: 700, color: t.grpo });
+  text(ctx, "one score for the whole answer", 28, 148, { size: 12, color: t.fg2 });
+  const uni = mix(t.box, t.grpo, 0.35);
+  const g = boxes(ctx, t, syl, 270, 110, { fills: syl.map(() => ({ fill: uni })) });
+  const gEnd = g[g.length - 1].x + g[g.length - 1].w;
+  ctx.strokeStyle = t.grpo; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(270, 160); ctx.lineTo(270, 166); ctx.lineTo(gEnd, 166); ctx.lineTo(gEnd, 160); ctx.stroke();
+  text(ctx, `reward ${a.reward.toFixed(2)} for the word: every syllable is reinforced the same,`, 270, 186, { size: 12.5, color: t.fg });
+  text(ctx, "the mistake included", 270, 203, { size: 12.5, color: t.fg });
+
+  // OPD row: the teacher grades each syllable.
+  text(ctx, "OPD", 28, 258, { size: 16, weight: 700, color: t.opd });
+  text(ctx, "the teacher grades every syllable", 28, 278, { size: 12, color: t.fg2 });
+  const o = boxes(ctx, t, syl, 270, 240, {
+    fills: a.syllables.map((s) => redFill(t, s.penalty)), numbers: a.syllables.map((s) => fmt(s.penalty)),
+  });
+  const worst = a.syllables.reduce((b, s, i) => (s.penalty > a.syllables[b].penalty ? i : b), 0);
+  const wx = o[worst].x + o[worst].w / 2;
+  ctx.strokeStyle = t.fg; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(wx, 300); ctx.lineTo(wx, 318); ctx.stroke();
+  const good = ex.answers["opd-200"];
+  let ax = text(ctx, "The teacher flags only this spot: it would have written the conjunct ", wx - 40, 336, { size: 12.5, color: t.fg });
+  const conj = ex.reference_syllables.find((s) => s.includes("్")) || "";
+  text(ctx, conj, wx - 40 + ax, 337, { size: 15, color: t.fg, font: TELUGU });
+  text(ctx, `(after OPD training the student writes ${good.text}, exact)`, wx - 40, 356, { size: 12.5, color: t.fg2 });
+  legend(ctx, t, 28, 384);
+  return c;
+}
+
+function gradedFigure(t, data) {
+  const rowH = 58, block = 3 * rowH + 44, H = 120 + data.length * block + 50;
+  const [c, ctx] = canvas(H);
+  ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H);
+  text(ctx, "The teacher grades each model's answer", 28, 42, { size: 21, weight: 600, color: t.fg });
+  text(ctx, "Each box is a syllable the model wrote for the word on the left; darker red = bigger penalty from the teacher (GRPO 1.5B).",
+       28, 68, { size: 13, color: t.fg2 });
+  text(ctx, "The last box is the decision to stop. Same 0.5B base model, 200 training steps each.", 28, 87, { size: 13, color: t.fg2 });
+  let y = 120;
+  const rows = [["base", "Base 0.5B", t.fg2], ["grpo-200", "GRPO", t.grpo], ["opd-200", "OPD", t.opd]];
+  for (const ex of data) {
+    ctx.strokeStyle = t.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(28, y - 8); ctx.lineTo(W - 28, y - 8); ctx.stroke();
+    text(ctx, ex.source, 28, y + 22, { size: 16, weight: 600, color: t.fg });
+    let x = 28 + text(ctx, "correct: ", 28, y + 46, { size: 12, color: t.fg2 });
+    text(ctx, ex.reference, x, y + 47, { size: 17, font: TELUGU, color: t.fg });
+    rows.forEach(([key, label, col], i) => {
+      const a = ex.answers[key], ry = y + i * rowH;
+      text(ctx, label, 210, ry + 26, { size: 13, weight: 700, color: col });
+      const b = boxes(ctx, t, a.syllables.map((s) => s.text), 300, ry + 4, {
+        h: 36, fills: a.syllables.map((s) => redFill(t, s.penalty)),
+        stop: a.stop === null ? null : { ...redFill(t, a.stop) },
+      });
+      const end = b.length ? b[b.length - 1].x + b[b.length - 1].w : 300;
+      const res = a.exact ? "✓ exact" : `✗  reward ${a.reward.toFixed(2)}`;
+      text(ctx, res, Math.max(end + 18, 700), ry + 27, { size: 13, weight: 600, color: a.exact ? t.ok : t.bad });
+    });
+    y += block;
+  }
+  legend(ctx, t, 28, H - 46);
+  return c;
+}
+
+(async () => {
+  const data = await (await fetch("../results/graded_examples.json")).json();
+  await document.fonts.load(`22px ${TELUGU}`, "అ");
+  const save = new URLSearchParams(location.search).has("save");
+  const out = document.getElementById("out");
+  for (const [mode, t] of Object.entries(THEMES)) {
+    for (const [name, c] of [["feedback", feedbackFigure(t, data.intro)], ["graded", gradedFigure(t, data.graded)]]) {
+      const file = `logprobs-${name}-${mode}.png`;
+      out.append(c);
+      const a = document.createElement("a");
+      a.href = c.toDataURL("image/png"); a.download = file; a.textContent = `Download ${file}`;
+      out.append(a);
+      if (save) await fetch("/save", { method: "POST", body: JSON.stringify({ name: file, data: a.href }) });
+    }
+  }
+  document.title = save ? "saved" : "Graded answers";
+})();
+</script>
+</body>
+</html>

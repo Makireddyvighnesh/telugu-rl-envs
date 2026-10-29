@@ -1,0 +1,480 @@
+{
+ "intro": {
+  "source": "sarkaaruku",
+  "reference": "సర్కారుకు",
+  "reference_syllables": [
+   "స",
+   "ర్కా",
+   "రు",
+   "కు"
+  ],
+  "answers": {
+   "base": {
+    "text": "సరకారుకు",
+    "exact": false,
+    "reward": 0.71,
+    "syllables": [
+     {
+      "text": "స",
+      "penalty": -0.88
+     },
+     {
+      "text": "ర",
+      "penalty": -0.2
+     },
+     {
+      "text": "కా",
+      "penalty": 4.05
+     },
+     {
+      "text": "రు",
+      "penalty": -0.15
+     },
+     {
+      "text": "కు",
+      "penalty": -0.22
+     }
+    ],
+    "stop": -0.06
+   },
+   "grpo-200": {
+    "text": "సరకారుకు",
+    "exact": false,
+    "reward": 0.71,
+    "syllables": [
+     {
+      "text": "స",
+      "penalty": -0.02
+     },
+     {
+      "text": "ర",
+      "penalty": -0.1
+     },
+     {
+      "text": "కా",
+      "penalty": 4.66
+     },
+     {
+      "text": "రు",
+      "penalty": -0.03
+     },
+     {
+      "text": "కు",
+      "penalty": -0.07
+     }
+    ],
+    "stop": 0.01
+   },
+   "opd-200": {
+    "text": "సర్కారుకు",
+    "exact": true,
+    "reward": 1.0,
+    "syllables": [
+     {
+      "text": "స",
+      "penalty": -0.01
+     },
+     {
+      "text": "ర్కా",
+      "penalty": -1.13
+     },
+     {
+      "text": "రు",
+      "penalty": -0.0
+     },
+     {
+      "text": "కు",
+      "penalty": 0.02
+     }
+    ],
+    "stop": 0.01
+   }
+  }
+ },
+ "graded": [
+  {
+   "source": "alladam",
+   "reference": "అల్లడం",
+   "reference_syllables": [
+    "అ",
+    "ల్ల",
+    "డం"
+   ],
+   "answers": {
+    "base": {
+     "text": "అల్లాదమదువ",
+     "exact": false,
+     "reward": 0.0,
+     "syllables": [
+      {
+       "text": "అ",
+       "penalty": -0.44
+      },
+      {
+       "text": "ల్లా",
+       "penalty": 0.9
+      },
+      {
+       "text": "ద",
+       "penalty": 3.24
+      },
+      {
+       "text": "మ",
+       "penalty": 6.85
+      },
+      {
+       "text": "దు",
+       "penalty": 24.15
+      },
+      {
+       "text": "వ",
+       "penalty": 10.92
+      }
+     ],
+     "stop": 9.89
+    },
+    "grpo-200": {
+     "text": "అలదమ",
+     "exact": false,
+     "reward": 0.27,
+     "syllables": [
+      {
+       "text": "అ",
+       "penalty": -0.05
+      },
+      {
+       "text": "ల",
+       "penalty": -0.06
+      },
+      {
+       "text": "ద",
+       "penalty": 17.47
+      },
+      {
+       "text": "మ",
+       "penalty": 4.21
+      }
+     ],
+     "stop": 19.14
+    },
+    "opd-200": {
+     "text": "అల్లడం",
+     "exact": true,
+     "reward": 1.0,
+     "syllables": [
+      {
+       "text": "అ",
+       "penalty": 0.0
+      },
+      {
+       "text": "ల్ల",
+       "penalty": -0.12
+      },
+      {
+       "text": "డం",
+       "penalty": -0.52
+      }
+     ],
+     "stop": 2.16
+    }
+   }
+  },
+  {
+   "source": "jaambavam",
+   "reference": "జాంబవం",
+   "reference_syllables": [
+    "జాం",
+    "బ",
+    "వం"
+   ],
+   "answers": {
+    "base": {
+     "text": "జబమవందుకు",
+     "exact": false,
+     "reward": 0.0,
+     "syllables": [
+      {
+       "text": "జ",
+       "penalty": 1.91
+      },
+      {
+       "text": "బ",
+       "penalty": 12.28
+      },
+      {
+       "text": "మ",
+       "penalty": 8.23
+      },
+      {
+       "text": "వం",
+       "penalty": -1.31
+      },
+      {
+       "text": "దు",
+       "penalty": 15.3
+      },
+      {
+       "text": "కు",
+       "penalty": 11.26
+      }
+     ],
+     "stop": -1.85
+    },
+    "grpo-200": {
+     "text": "జాబవమ",
+     "exact": false,
+     "reward": 0.53,
+     "syllables": [
+      {
+       "text": "జా",
+       "penalty": 2.41
+      },
+      {
+       "text": "బ",
+       "penalty": 5.23
+      },
+      {
+       "text": "వ",
+       "penalty": 13.34
+      },
+      {
+       "text": "మ",
+       "penalty": 5.16
+      }
+     ],
+     "stop": 10.04
+    },
+    "opd-200": {
+     "text": "జాంబవం",
+     "exact": true,
+     "reward": 1.0,
+     "syllables": [
+      {
+       "text": "జాం",
+       "penalty": 2.75
+      },
+      {
+       "text": "బ",
+       "penalty": 1.75
+      },
+      {
+       "text": "వం",
+       "penalty": -0.05
+      }
+     ],
+     "stop": 0.0
+    }
+   }
+  },
+  {
+   "source": "padutunnaa",
+   "reference": "పడుతున్నా",
+   "reference_syllables": [
+    "ప",
+    "డు",
+    "తు",
+    "న్నా"
+   ],
+   "answers": {
+    "base": {
+     "text": "పదుతననాక్కో",
+     "exact": false,
+     "reward": 0.27,
+     "syllables": [
+      {
+       "text": "ప",
+       "penalty": -1.73
+      },
+      {
+       "text": "దు",
+       "penalty": 0.13
+      },
+      {
+       "text": "త",
+       "penalty": -0.34
+      },
+      {
+       "text": "న",
+       "penalty": 11.31
+      },
+      {
+       "text": "నా",
+       "penalty": 12.07
+      },
+      {
+       "text": "క్కో",
+       "penalty": 17.04
+      }
+     ],
+     "stop": -0.91
+    },
+    "grpo-200": {
+     "text": "పదుతననా",
+     "exact": false,
+     "reward": 0.53,
+     "syllables": [
+      {
+       "text": "ప",
+       "penalty": -0.01
+      },
+      {
+       "text": "దు",
+       "penalty": 0.53
+      },
+      {
+       "text": "త",
+       "penalty": -0.01
+      },
+      {
+       "text": "న",
+       "penalty": 11.97
+      },
+      {
+       "text": "నా",
+       "penalty": 13.2
+      }
+     ],
+     "stop": 0.0
+    },
+    "opd-200": {
+     "text": "పడుతున్నా",
+     "exact": true,
+     "reward": 1.0,
+     "syllables": [
+      {
+       "text": "ప",
+       "penalty": 0.0
+      },
+      {
+       "text": "డు",
+       "penalty": 0.1
+      },
+      {
+       "text": "తు",
+       "penalty": -0.0
+      },
+      {
+       "text": "న్నా",
+       "penalty": 0.01
+      }
+     ],
+     "stop": 0.03
+    }
+   }
+  },
+  {
+   "source": "holt",
+   "reference": "హోల్ట్",
+   "reference_syllables": [
+    "హో",
+    "ల్ట్"
+   ],
+   "answers": {
+    "base": {
+     "text": "హోల్ చేసుకురావొత్తుకున్నికి, మీర",
+     "exact": false,
+     "reward": 0.0,
+     "syllables": [
+      {
+       "text": "హో",
+       "penalty": -1.65
+      },
+      {
+       "text": "ల్",
+       "penalty": -0.81
+      },
+      {
+       "text": " ",
+       "penalty": 0.0
+      },
+      {
+       "text": "చే",
+       "penalty": 15.87
+      },
+      {
+       "text": "సు",
+       "penalty": 11.98
+      },
+      {
+       "text": "కు",
+       "penalty": 6.86
+      },
+      {
+       "text": "రా",
+       "penalty": 5.92
+      },
+      {
+       "text": "వొ",
+       "penalty": 8.12
+      },
+      {
+       "text": "త్తు",
+       "penalty": 18.35
+      },
+      {
+       "text": "కు",
+       "penalty": 6.09
+      },
+      {
+       "text": "న్ని",
+       "penalty": 7.87
+      },
+      {
+       "text": "కి",
+       "penalty": 5.18
+      },
+      {
+       "text": ",",
+       "penalty": 6.68
+      },
+      {
+       "text": " ",
+       "penalty": 0.0
+      },
+      {
+       "text": "మీ",
+       "penalty": 1.65
+      },
+      {
+       "text": "ర",
+       "penalty": 1.06
+      }
+     ],
+     "stop": null
+    },
+    "grpo-200": {
+     "text": "హోల",
+     "exact": false,
+     "reward": 0.4,
+     "syllables": [
+      {
+       "text": "హో",
+       "penalty": 1.24
+      },
+      {
+       "text": "ల",
+       "penalty": -0.12
+      }
+     ],
+     "stop": 30.75
+    },
+    "opd-200": {
+     "text": "హోల్ట్",
+     "exact": true,
+     "reward": 1.0,
+     "syllables": [
+      {
+       "text": "హో",
+       "penalty": 1.33
+      },
+      {
+       "text": "ల్ట్",
+       "penalty": 0.14
+      }
+     ],
+     "stop": 0.02
+    }
+   }
+  }
+ ]
+}
