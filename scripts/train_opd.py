@@ -58,13 +58,25 @@ def load_teacher(base: str, adapter: str | None, teacher_device, head_device, dt
     return teacher
 
 
-def make_trainer_class():
+def make_trainer_class(env_url=None, snapshot_id=None):
+    """With env_url, rollouts go through the OpenEnv server: each row's prompt comes from reset(task_id) and each
+    answer is graded with step(), so the trainer never sees a reference. The OPD loss is still the teacher KL;
+    the server's reward is logged."""
     from trl import DistillationTrainer
 
     from telugu_envs.reward import text_reward
 
     class SplitDeviceDistillationTrainer(DistillationTrainer):
         """DistillationTrainer with the teacher backbone on its own GPU, logging the env reward of each rollout."""
+
+        _envs = []
+
+        def _environments(self, n):
+            from telugu_transliteration.training import TrainingEnvironment
+
+            while len(self._envs) < n:  # one session per rollout in a generation batch, reused across batches
+                self._envs.append(TrainingEnvironment(env_url, snapshot_id))
+            return self._envs[:n]
 
         def _get_last_hidden_state(self, unwrapped_model, input_ids, attention_mask, logits_to_keep, **kwargs):
             # Batches live on the student's device; feed each backbone on its own. The caller moves the returned
@@ -75,16 +87,23 @@ def make_trainer_class():
             )
 
         def _generate_and_score_completions(self, inputs):
+            if env_url:
+                envs = self._environments(len(inputs))
+                for x, e in zip(inputs, envs):
+                    x["prompt"] = [{"role": "user", "content": e.reset(x["task_id"])}]
             output = super()._generate_and_score_completions(inputs)
             mode = "train" if self.model.training else "eval"
             ids = output["completion_ids"].masked_fill(output["completion_mask"] == 0, self._tokenizer.pad_token_id)
             preds = self._tokenizer.batch_decode(ids, skip_special_tokens=True)
-            scores = [text_reward(x["reference"], p, x["task"]) for x, p in zip(inputs, preds)]
-            for key, vals in (
-                ("env_reward", [s.reward for s in scores]),
-                ("cer", [s.cer for s in scores]),
-                ("exact", [float(s.exact) for s in scores]),
-            ):
+            if env_url:
+                results = [e._grade(p) for e, p in zip(envs, preds)]
+                reward = [float(r.reward) for r in results]
+                cer = [float(r.observation.metrics["cer"]) for r in results]
+                exact = [float(r.observation.metrics["exact_match"]) for r in results]
+            else:
+                scores = [text_reward(x["reference"], p, x["task"]) for x, p in zip(inputs, preds)]
+                reward, cer, exact = [s.reward for s in scores], [s.cer for s in scores], [float(s.exact) for s in scores]
+            for key, vals in (("env_reward", reward), ("cer", cer), ("exact", exact)):
                 self._metrics[mode][key].append(sum(vals) / len(vals))
             return output
 
@@ -101,6 +120,8 @@ def main():
         help="LoRA merged into the teacher ('' = base teacher)",
     )
     ap.add_argument("--source", default="aksharantar")
+    ap.add_argument("--env-url", default=None, help="train through this OpenEnv transliteration server (task IDs only)")
+    ap.add_argument("--eval-split", default="validation-256", help="server split for evaluation (with --env-url)")
     ap.add_argument("--train-size", type=int, default=64000)
     ap.add_argument("--eval-size", type=int, default=256)
     ap.add_argument("--max-steps", type=int, default=1000)
@@ -127,8 +148,22 @@ def main():
     student_device = "cuda:0" if cuda else "cpu"
     teacher_device = "cuda:1" if cuda and torch.cuda.device_count() > 1 else student_device
     out = Path(args.out)
-    train = build_dataset(args.source, "train", args.train_size, args.seed)
-    evals = build_dataset(args.source, "valid", args.eval_size, args.seed)
+    snapshot_id = None
+    if args.env_url:
+        from datasets import Dataset
+
+        from telugu_transliteration.client import connect
+        from telugu_transliteration.training import task_rows
+
+        with connect(args.env_url) as client:
+            snapshot_id = client.manifest()["snapshot_id"]
+        blank = [{"role": "user", "content": ""}]  # replaced by the server's prompt at rollout time
+        train = Dataset.from_list([{**r, "prompt": blank} for r in task_rows(args.env_url, "train", args.train_size, args.seed)])
+        evals = Dataset.from_list([{**r, "prompt": blank} for r in task_rows(args.env_url, args.eval_split, args.eval_size)])
+        print(f"training through {args.env_url}, snapshot {snapshot_id[:12]}, {len(train)} train tasks", flush=True)
+    else:
+        train = build_dataset(args.source, "train", args.train_size, args.seed)
+        evals = build_dataset(args.source, "valid", args.eval_size, args.seed)
 
     config = DistillationConfig(
         output_dir=str(out),
@@ -170,7 +205,7 @@ def main():
         target_modules="all-linear",
         task_type="CAUSAL_LM",
     )
-    trainer = make_trainer_class()(
+    trainer = make_trainer_class(args.env_url, snapshot_id)(
         model=args.model,
         teacher_model=teacher,
         args=config,
