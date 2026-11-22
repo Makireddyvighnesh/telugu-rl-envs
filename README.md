@@ -93,6 +93,20 @@ where it went wrong ([full token-level analysis](results/opd-vs-grpo-token-analy
 
 Plot data is in [`results/`](results/); regenerate the images with `python scripts/plot_results.py`.
 
+### Trained through the OpenEnv server
+
+Both methods were also run through the transliteration environment as a real OpenEnv server. The
+trainer saw only task IDs, got each prompt from `reset(task_id)` and each grade from `step(answer)`,
+and never saw a correct answer. The results match the runs that call the reward code directly:
+
+| Run | Through the server | Same settings, reward code called directly |
+|---|---|---|
+| GRPO 1.5B, 1000 steps | reward 0.695, 29.1% exact | byte-identical adapter |
+| OPD 0.5B, 200 steps | reward 0.593, 15.4% exact | reward 0.592, 15.3% exact |
+
+The other runs on this page (the 0.5B GRPO comparison, OPD 1000 steps, the evaluations and the
+token-level analysis) call the same reward code in-process.
+
 Trained adapter (1.5B GRPO): [makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo](https://huggingface.co/makireddyvighnesh/Qwen2.5-1.5B-Instruct-telugu-translit-grpo).
 Per-source breakdowns and sampling checks: [`results/baselines.md`](results/baselines.md).
 
@@ -183,7 +197,9 @@ python scripts/train_opd.py --max-steps 1000 --out outputs/opd
 ```
 
 Defaults: student Qwen2.5-0.5B-Instruct, teacher Qwen2.5-1.5B-Instruct with the GRPO adapter above
-merged in, reverse KL. Change them with `--model`, `--teacher`, `--teacher-adapter`.
+merged in, reverse KL. Change them with `--model`, `--teacher`, `--teacher-adapter`. To train through
+a running environment server instead, add `--env-url http://127.0.0.1:8000`: prompts then come from
+`reset()` and the logged reward from `step()`.
 
 **Kaggle notes:** T4s have no bf16, so everything runs in fp16. Run `pip uninstall -y torchao`
 after installing; Kaggle ships torchao 0.10, which current PEFT rejects.

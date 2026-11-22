@@ -66,3 +66,17 @@ By origin (reward / exact): GRPO Dakshina 0.472 / 4.8%, AK-Freq 0.468 / 2.3%, AK
 AK-NEF 0.303 / 1.1%; OPD Dakshina 0.610 / 18.0%, AK-Freq 0.665 / 17.6%, AK-NEI 0.500 / 8.2%, AK-NEF 0.441 / 4.3%.
 Validation reward at steps 50 / 100 / 150 / 200: GRPO 0.381 / 0.413 / 0.432 / 0.439,
 OPD 0.464 / 0.558 / 0.573 / 0.572 (sampled at each method's training temperature).
+
+## OPD through the OpenEnv server (0.5B, 200 steps)
+
+`scripts/train_opd.py --env-url`: the trainer's dataset holds task IDs only; prompts come from the
+server's `reset(task_id)` and each answer is graded with `step(answer)`. Same settings as the
+in-process OPD-200 run above. The server log records 67 WebSocket sessions and no errors; 1,341 s on 2xT4.
+
+| Run | Reward | CER | Exact | Best of 8 |
+|---|---:|---:|---:|---:|
+| OPD-200 through the server | 0.593 | 0.297 | 15.40% | 0.650 |
+| OPD-200 in-process | 0.592 | 0.299 | 15.34% | 0.649 |
+
+Validation env reward at steps 50 / 100 / 150 / 200: 0.451 / 0.560 / 0.577 / 0.582 (in-process:
+0.464 / 0.558 / 0.573 / 0.572). The small differences come from a different task order and sampling.
